@@ -1,36 +1,87 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Catat Duit
 
-## Getting Started
+Bot Telegram buat nyatet pengeluaran dan pemasukan pakai bahasa biasa, plus dashboard (nyusul).
+Jalan di Vercel (gratis) dengan database Neon Postgres (gratis).
 
-First, run the development server:
-
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+```
+15000 makan bubur            -> Pengeluaran Rp15.000, Makan & Minum, hari ini, Cash
+kemarin 25rb bensin          -> Pengeluaran Rp25.000, Transport, kemarin
+5 November 2026, 15000 bubur -> tanggal 5 Nov 2026
+50rb bensin pake bca         -> dicatat dari akun BCA
+gajian 8jt / +500rb freelance -> Pemasukan
+transfer 1jt bca ke gopay    -> Transfer antar akun (nggak dihitung pengeluaran)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Command: `/hari_ini`, `/bulan_ini`, `/hapus` (hapus transaksi terakhir), `/bantuan`.
+Tiap catatan ada tombol **Ganti kategori** dan **Batal**.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Cara kerja
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. Nominal dan tanggal dibaca pakai aturan (regex) di `src/lib/parse.ts`. Format yang kebaca: `15000`, `15.000`, `15rb`, `15k`, `1,5jt`, `Rp 15.000`, `5 Nov`, `5 November 2026`, `05/11/2026`, `kemarin`, `3 hari lalu`, dst.
+2. Kategori dan pemasukan/pengeluaran ditentukan AI (Gemini, free tier). Tanpa API key, bot pakai pencocokan kata kunci di `src/lib/keywords.ts`.
+3. Akun dipilih dari nama atau alias akun yang disebut di chat. Kalau nggak ada, pakai akun default.
+4. Update yang dikirim ulang Telegram dicatat di tabel `telegram_updates`, jadi nggak ada catatan dobel.
 
-## Learn More
+## Setup (sekali aja)
 
-To learn more about Next.js, take a look at the following resources:
+### 1. Database Neon
+1. Buka https://console.neon.tech, bikin project `catatduit`, region **AWS Asia Pacific (Singapore)**.
+2. Klik **Connect**, pilih connection string yang **pooled**, terus copy. Ini `DATABASE_URL`.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Tabel dan data awal (akun Cash, BCA, GoPay, plus kategori) dibikin otomatis waktu deploy ke Vercel (`vercel-build` jalanin `drizzle-kit migrate`).
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### 2. API key AI (opsional tapi disarankan)
+Bikin key gratis di https://aistudio.google.com/apikey. Ini `AI_API_KEY`.
 
-## Deploy on Vercel
+### 3. Deploy ke Vercel
+1. Buka https://vercel.com/new, import repo ini, nama project `catatduit`.
+2. Di **Environment Variables**, isi semua yang ada di `.env.example`:
+   - `DATABASE_URL`: dari Neon
+   - `TELEGRAM_BOT_TOKEN`: dari @BotFather
+   - `TELEGRAM_WEBHOOK_SECRET`: string acak panjang, **cuma huruf, angka, `_` atau `-`** (misal hasil `openssl rand -hex 32` atau password generator tanpa simbol)
+   - `ALLOWED_TELEGRAM_USER_IDS`: ID Telegram lu dari @userinfobot
+   - `AI_API_KEY`: dari Google AI Studio
+3. Klik **Deploy**.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### 4. Sambungin bot ke Vercel (webhook)
+Buka URL ini di browser (ganti bagian `<...>`):
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```
+https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook?url=https://<domain-vercel-lu>/api/telegram&secret_token=<TELEGRAM_WEBHOOK_SECRET>&allowed_updates=["message","callback_query"]
+```
+
+Kalau berhasil, muncul `{"ok":true,"result":true,"description":"Webhook was set"}`.
+Cek status kapan aja di `https://api.telegram.org/bot<TOKEN>/getWebhookInfo`.
+
+Alternatif dari terminal: isi `.env`, lalu `npm run webhook:set -- https://<domain-vercel-lu>`.
+
+### 5. Coba
+Chat bot lu: `15000 makan bubur`.
+
+## Ngubah akun dan kategori (sebelum dashboard jadi)
+Buka Neon, **Tables**, edit tabel `accounts` atau `categories`. Kolom `aliases` di `accounts` isinya kata lain buat akun itu, misal `{bca,mbca}`. Kolom `is_default` nentuin akun yang dipakai kalau chat nggak nyebut akun.
+
+## Development
+
+```bash
+npm install
+cp .env.example .env   # isi nilainya
+npm run db:migrate     # bikin tabel di database
+npm test               # unit test parser, kategori, dan bot
+npm run dev
+```
+
+Ubah skema di `src/db/schema.ts`, lalu `npm run db:generate` buat bikin file migrasi baru di `drizzle/`.
+
+## Struktur
+
+```
+src/app/api/telegram/route.ts  webhook Telegram
+src/bot/bot.ts                 handler chat, command, dan tombol
+src/lib/parse.ts               baca nominal dan tanggal
+src/lib/interpret.ts           gabungin parser, akun, AI/kata kunci jadi satu transaksi
+src/lib/ai.ts                  panggilan AI (OpenAI-compatible, default Gemini)
+src/lib/ledger.ts              query database
+src/db/schema.ts               skema: accounts, categories, transactions, budgets
+drizzle/                       file migrasi SQL
+```
