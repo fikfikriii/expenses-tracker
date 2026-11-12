@@ -262,6 +262,7 @@ export type CategoryInput = {
   name: string;
   kind: "expense" | "income";
   icon: string;
+  keywords: string[];
   archived: boolean;
 };
 

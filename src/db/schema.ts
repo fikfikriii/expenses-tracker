@@ -50,6 +50,8 @@ export const categories = pgTable(
     name: text("name").notNull(),
     kind: categoryKind("kind").notNull(),
     icon: text("icon").notNull().default(""),
+    // Extra words that put a chat in this category, e.g. ["latte", "starbucks"].
+    keywords: text("keywords").array().notNull().default([]),
     archived: boolean("archived").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },

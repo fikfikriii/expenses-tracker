@@ -45,3 +45,29 @@ describe("interpret (no AI)", () => {
     expect(await interpret("halo", ctx)).toEqual({ ok: false, reason: "no_amount" });
   });
 });
+
+describe("user categories", () => {
+  const cats: CategoryRef[] = [
+    ...categories,
+    { id: 20, name: "Kopi", kind: "expense", keywords: ["latte", "starbucks"] },
+    { id: 21, name: "Kopi Susu", kind: "expense" },
+  ];
+  const c2 = { ...ctx, categories: cats };
+
+  it("uses a category named in the chat", async () => {
+    const r = await interpret("11 Nov 2026, 8000 Kopi", c2);
+    expect(r).toMatchObject({ ok: true, draft: { categoryId: 20, date: "2026-11-11", note: "Kopi" } });
+  });
+  it("uses category keywords", async () => {
+    const r = await interpret("45rb latte", c2);
+    expect(r).toMatchObject({ ok: true, draft: { categoryId: 20 } });
+  });
+  it("prefers the longest match", async () => {
+    const r = await interpret("20rb kopi susu", c2);
+    expect(r).toMatchObject({ ok: true, draft: { categoryId: 21 } });
+  });
+  it("can match an income category", async () => {
+    const r = await interpret("8jt gaji", c2);
+    expect(r).toMatchObject({ ok: true, draft: { type: "income", categoryId: 11 } });
+  });
+});

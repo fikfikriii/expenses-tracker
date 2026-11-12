@@ -37,6 +37,11 @@ function amountFrom(f: FormData, k: string): number | null {
   return extractAmount(raw).amount;
 }
 
+/** "Latte, starbucks ,kopken" -> ["latte", "starbucks", "kopken"] */
+function splitList(raw: string): string[] {
+  return [...new Set(raw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean))];
+}
+
 function refresh() {
   revalidatePath("/", "layout");
 }
@@ -95,10 +100,7 @@ export async function saveAccount(_prev: FormState, f: FormData): Promise<FormSt
   const raw = str(f, "initialBalance");
   const initialBalance = raw ? amountFrom(f, "initialBalance") : 0;
   if (initialBalance === null) return { error: "Saldo awal nggak kebaca." };
-  const aliases = str(f, "aliases")
-    .split(",")
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean);
+  const aliases = splitList(str(f, "aliases"));
   const input = {
     name,
     type,
@@ -125,15 +127,16 @@ export async function saveCategory(_prev: FormState, f: FormData): Promise<FormS
   const name = str(f, "name");
   if (!name) return { error: "Nama kategori wajib diisi." };
   const icon = str(f, "icon");
+  const keywords = splitList(str(f, "keywords"));
   const archived = f.get("archived") === "on";
   const id = int(f, "id");
   try {
     if (id) {
-      await updateCategory(id, { name, icon, archived });
+      await updateCategory(id, { name, icon, keywords, archived });
     } else {
       const kind = str(f, "kind");
       if (kind !== "expense" && kind !== "income") return { error: "Jenis kategori nggak valid." };
-      await createCategory({ name, kind, icon, archived });
+      await createCategory({ name, kind, icon, keywords, archived });
     }
   } catch (e) {
     if (isUniqueViolation(e)) return { error: `Kategori "${name}" udah ada.` };

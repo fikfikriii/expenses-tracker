@@ -78,7 +78,7 @@ export function AccountForm({ account }: {
 }
 
 export function CategoryForm({ category, kind }: {
-  category?: { id: number; name: string; icon: string; archived: boolean };
+  category?: { id: number; name: string; icon: string; keywords: string[]; archived: boolean };
   kind?: "expense" | "income";
 }) {
   const [state, action, pending] = useActionState<FormState, FormData>(saveCategory, null);
@@ -94,6 +94,15 @@ export function CategoryForm({ category, kind }: {
       <label className="label min-w-40 flex-1">
         Nama
         <input name="name" required defaultValue={category?.name} placeholder="Nama kategori" className="input" />
+      </label>
+      <label className="label min-w-48 flex-[2]">
+        Kata kunci (pisah koma)
+        <input
+          name="keywords"
+          defaultValue={category?.keywords.join(", ")}
+          placeholder={category ? "opsional" : "latte, starbucks"}
+          className="input"
+        />
       </label>
       {category && (
         <label className="flex items-center gap-2 pb-2 text-sm">

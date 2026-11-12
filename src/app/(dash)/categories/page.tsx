@@ -11,8 +11,9 @@ export default async function CategoriesPage() {
     <>
       <h1 className="text-xl font-semibold">Kategori</h1>
       <p className="-mt-4 text-sm text-muted">
-        Kategori baru langsung dipakai AI buat ngelompokin chat. Kategori yang diarsipkan disembunyiin dari bot,
-        tapi transaksi lamanya tetap ada.
+        Kalau chat nyebut nama kategori atau salah satu kata kuncinya, bot langsung masukin ke kategori itu
+        (misal kategori &quot;Kopi&quot; dengan kata kunci &quot;latte, starbucks&quot;). Selain itu, AI yang milih.
+        Kategori yang diarsipkan disembunyiin dari bot, tapi transaksi lamanya tetap ada.
       </p>
       <div className="grid gap-6 md:grid-cols-2">
         {groups.map((g) => (

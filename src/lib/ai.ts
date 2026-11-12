@@ -32,6 +32,7 @@ export async function classifyWithAi(input: {
     `Kategori pengeluaran: ${input.expenseCategories.join(", ")}.`,
     `Kategori pemasukan: ${input.incomeCategories.join(", ")}.`,
     "category WAJIB persis salah satu nama dari daftar yang sesuai dengan type.",
+    "Kalau ada beberapa yang cocok, pilih yang PALING SPESIFIK (misal ada \"Kopi\" dan \"Makan & Minum\", pesan \"kopi susu\" masuk \"Kopi\").",
     "Kalau ragu, type=expense. Kalau tidak ada yang cocok, pakai \"Lainnya\" (expense) atau \"Pemasukan Lain\" (income).",
     "note: deskripsi singkat yang rapi, huruf kapital di awal, tanpa nominal, tanpa tanggal, tanpa nama akun/bank. Contoh: \"makan bubur\" -> \"Makan bubur\".",
   ].join("\n");

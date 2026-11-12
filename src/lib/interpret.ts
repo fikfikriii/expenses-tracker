@@ -4,11 +4,32 @@ import {
   DEFAULT_EXPENSE_CATEGORY,
   DEFAULT_INCOME_CATEGORY,
   guessCategory,
+  hasWord,
   looksLikeIncome,
 } from "./keywords";
 import { parseMessage } from "./parse";
 
-export type CategoryRef = { id: number; name: string; kind: "expense" | "income" };
+export type CategoryRef = {
+  id: number;
+  name: string;
+  kind: "expense" | "income";
+  keywords?: string[];
+};
+
+/**
+ * A category whose name or user-set keyword appears in the text, e.g. "kopi" -> "Kopi".
+ * The longest match wins, so "kopi susu" beats "kopi".
+ */
+export function matchUserCategory(text: string, categories: CategoryRef[]): CategoryRef | null {
+  let best: { cat: CategoryRef; len: number } | null = null;
+  for (const cat of categories) {
+    for (const term of [cat.name, ...(cat.keywords ?? [])]) {
+      const t = term.trim();
+      if (t && hasWord(text, t) && (!best || t.length > best.len)) best = { cat, len: t.length };
+    }
+  }
+  return best?.cat ?? null;
+}
 
 export type Draft =
   | {
@@ -73,6 +94,22 @@ export async function interpret(
 
   const expenseCats = ctx.categories.filter((c) => c.kind === "expense");
   const incomeCats = ctx.categories.filter((c) => c.kind === "income");
+
+  const userMatch = matchUserCategory(rest, ctx.categories);
+  if (userMatch) {
+    return {
+      ok: true,
+      usedAi: false,
+      draft: {
+        type: userMatch.kind,
+        amount: parsed.amount,
+        date: parsed.date,
+        accountId: account.id,
+        categoryId: userMatch.id,
+        note: capitalize(rest),
+      },
+    };
+  }
 
   const ai = await classifyWithAi({
     text: rest,
