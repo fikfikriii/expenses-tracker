@@ -137,3 +137,149 @@ export async function budgetStatus(categoryId: number, date: string) {
     );
   return { limit: budget.monthlyLimit, spent: Number(row?.spent ?? 0) };
 }
+
+// ---------- Dashboard queries ----------
+
+export async function listAllAccounts() {
+  return db().select().from(accounts).orderBy(asc(accounts.archived), desc(accounts.isDefault), asc(accounts.id));
+}
+
+export async function listAllCategories() {
+  return db().select().from(categories).orderBy(asc(categories.archived), asc(categories.kind), asc(categories.id));
+}
+
+/** Current balance per account: opening balance plus every transaction up to today. */
+export async function accountBalances() {
+  const rows = await db()
+    .select({
+      id: accounts.id,
+      initial: accounts.initialBalance,
+      delta: sql<string>`coalesce(sum(case
+        when ${transactions.type} = 'income' and ${transactions.accountId} = ${accounts.id} then ${transactions.amount}
+        when ${transactions.type} in ('expense', 'transfer') and ${transactions.accountId} = ${accounts.id} then -${transactions.amount}
+        when ${transactions.type} = 'transfer' and ${transactions.toAccountId} = ${accounts.id} then ${transactions.amount}
+        else 0 end), 0)`,
+    })
+    .from(accounts)
+    .leftJoin(
+      transactions,
+      sql`${transactions.accountId} = ${accounts.id} or ${transactions.toAccountId} = ${accounts.id}`,
+    )
+    .groupBy(accounts.id);
+  return new Map(rows.map((r) => [r.id, r.initial + Number(r.delta)]));
+}
+
+export type TxFilters = {
+  from?: string;
+  to?: string;
+  type?: "expense" | "income" | "transfer";
+  categoryId?: number;
+  accountId?: number;
+  q?: string;
+};
+
+function txWhere(f: TxFilters) {
+  return and(
+    f.from ? gte(transactions.occurredOn, f.from) : undefined,
+    f.to ? lte(transactions.occurredOn, f.to) : undefined,
+    f.type ? eq(transactions.type, f.type) : undefined,
+    f.categoryId ? eq(transactions.categoryId, f.categoryId) : undefined,
+    f.accountId
+      ? sql`(${transactions.accountId} = ${f.accountId} or ${transactions.toAccountId} = ${f.accountId})`
+      : undefined,
+    f.q ? sql`${transactions.note} ilike ${"%" + f.q + "%"}` : undefined,
+  );
+}
+
+export async function listTransactions(f: TxFilters, limit = 50, offset = 0) {
+  const where = txWhere(f);
+  const [rows, [count]] = await Promise.all([
+    db()
+      .select()
+      .from(transactions)
+      .where(where)
+      .orderBy(desc(transactions.occurredOn), desc(transactions.id))
+      .limit(limit)
+      .offset(offset),
+    db().select({ n: sql<string>`count(*)` }).from(transactions).where(where),
+  ]);
+  return { rows, total: Number(count?.n ?? 0) };
+}
+
+export type TxInput = {
+  type: "expense" | "income" | "transfer";
+  amount: number;
+  occurredOn: string;
+  accountId: number;
+  toAccountId: number | null;
+  categoryId: number | null;
+  note: string;
+};
+
+export async function createTransaction(input: TxInput) {
+  const [row] = await db()
+    .insert(transactions)
+    .values({ ...input, source: "dashboard" })
+    .returning();
+  return row;
+}
+
+export async function updateTransaction(id: number, input: TxInput) {
+  const [row] = await db().update(transactions).set(input).where(eq(transactions.id, id)).returning();
+  return row;
+}
+
+export type AccountInput = {
+  name: string;
+  type: (typeof schema.accountType.enumValues)[number];
+  aliases: string[];
+  initialBalance: number;
+  isDefault: boolean;
+  archived: boolean;
+};
+
+async function clearDefaultIf(isDefault: boolean, exceptId?: number) {
+  if (!isDefault) return;
+  await db()
+    .update(accounts)
+    .set({ isDefault: false })
+    .where(exceptId ? sql`${accounts.id} <> ${exceptId}` : undefined);
+}
+
+export async function createAccount(input: AccountInput) {
+  await clearDefaultIf(input.isDefault);
+  const [row] = await db().insert(accounts).values(input).returning();
+  return row;
+}
+
+export async function updateAccount(id: number, input: AccountInput) {
+  await clearDefaultIf(input.isDefault, id);
+  const [row] = await db().update(accounts).set(input).where(eq(accounts.id, id)).returning();
+  return row;
+}
+
+export type CategoryInput = {
+  name: string;
+  kind: "expense" | "income";
+  icon: string;
+  archived: boolean;
+};
+
+export async function createCategory(input: CategoryInput) {
+  const [row] = await db().insert(categories).values(input).returning();
+  return row;
+}
+
+export async function updateCategory(id: number, input: Omit<CategoryInput, "kind">) {
+  const [row] = await db().update(categories).set(input).where(eq(categories.id, id)).returning();
+  return row;
+}
+
+/** Recent transactions for the overview. */
+export async function recentTransactions(limit = 8) {
+  return db()
+    .select()
+    .from(transactions)
+    .orderBy(desc(transactions.occurredOn), desc(transactions.id))
+    .limit(limit);
+}

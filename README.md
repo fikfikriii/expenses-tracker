@@ -1,6 +1,6 @@
 # Expenses Tracker
 
-Bot Telegram buat nyatet pengeluaran dan pemasukan pakai bahasa biasa, plus dashboard (nyusul).
+Bot Telegram buat nyatet pengeluaran dan pemasukan pakai bahasa biasa, plus dashboard web.
 Jalan di Vercel (gratis) dengan database Neon Postgres (gratis).
 
 ```
@@ -41,6 +41,7 @@ Bikin key gratis di https://aistudio.google.com/apikey. Ini `AI_API_KEY`.
    - `TELEGRAM_WEBHOOK_SECRET`: string acak panjang, **cuma huruf, angka, `_` atau `-`** (misal hasil `openssl rand -hex 32` atau password generator tanpa simbol)
    - `ALLOWED_TELEGRAM_USER_IDS`: ID Telegram lu dari @userinfobot
    - `AI_API_KEY`: dari Google AI Studio
+   - `DASHBOARD_PASSWORD`: password buat login dashboard
 3. Klik **Deploy**.
 
 ### 4. Sambungin bot ke Vercel (webhook)
@@ -50,6 +51,8 @@ Buka URL ini di browser (ganti bagian `<...>`):
 https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook?url=https://<domain-vercel-lu>/api/telegram&secret_token=<TELEGRAM_WEBHOOK_SECRET>&allowed_updates=["message","callback_query"]
 ```
 
+Pakai **domain production** dari tab Overview Vercel (yang nggak ada kode acaknya). URL per-deployment dikunci login Vercel (error `401`), dan cuma berlaku buat satu deploy. Pastiin juga cuma ada satu `/` sebelum `api` (kalau `//` hasilnya error `308`).
+
 Kalau berhasil, muncul `{"ok":true,"result":true,"description":"Webhook was set"}`.
 Cek status kapan aja di `https://api.telegram.org/bot<TOKEN>/getWebhookInfo`.
 
@@ -58,8 +61,16 @@ Alternatif dari terminal: isi `.env`, lalu `npm run webhook:set -- https://<doma
 ### 5. Coba
 Chat bot lu: `15000 makan bubur`.
 
-## Ngubah akun dan kategori (sebelum dashboard jadi)
-Buka Neon, **Tables**, edit tabel `accounts` atau `categories`. Kolom `aliases` di `accounts` isinya kata lain buat akun itu, misal `{bca,mbca}`. Kolom `is_default` nentuin akun yang dipakai kalau chat nggak nyebut akun.
+## Dashboard
+
+Buka domain Vercel lu, login pakai `DASHBOARD_PASSWORD`.
+
+- **Overview**: pemasukan, pengeluaran, selisih, dan total saldo per bulan; pengeluaran per kategori; saldo tiap akun; transaksi terakhir.
+- **Transaksi**: filter (tanggal, tipe, kategori, akun, catatan), tambah manual, klik buat edit atau hapus.
+- **Akun**: tambah akun tanpa batas (tunai, bank, e-wallet, tabungan, kartu kredit), saldo awal, alias buat bot, akun default, arsip.
+- **Kategori**: tambah, ganti nama/ikon, arsip. Kategori baru langsung dipakai AI.
+
+Saldo akun = saldo awal + pemasukan − pengeluaran ± transfer.
 
 ## Development
 
@@ -77,6 +88,8 @@ Ubah skema di `src/db/schema.ts`, lalu `npm run db:generate` buat bikin file mig
 
 ```
 src/app/api/telegram/route.ts  webhook Telegram
+src/app/(dash)/                halaman dashboard + server actions
+src/middleware.ts              login dashboard
 src/bot/bot.ts                 handler chat, command, dan tombol
 src/lib/parse.ts               baca nominal dan tanggal
 src/lib/interpret.ts           gabungin parser, akun, AI/kata kunci jadi satu transaksi
