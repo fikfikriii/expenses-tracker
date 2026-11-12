@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Catat Duit",
+  title: "Expenses Tracker",
   description: "Pencatat pengeluaran pribadi lewat Telegram",
 };
 

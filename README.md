@@ -1,4 +1,4 @@
-# Catat Duit
+# Expenses Tracker
 
 Bot Telegram buat nyatet pengeluaran dan pemasukan pakai bahasa biasa, plus dashboard (nyusul).
 Jalan di Vercel (gratis) dengan database Neon Postgres (gratis).
@@ -25,7 +25,7 @@ Tiap catatan ada tombol **Ganti kategori** dan **Batal**.
 ## Setup (sekali aja)
 
 ### 1. Database Neon
-1. Buka https://console.neon.tech, bikin project `catatduit`, region **AWS Asia Pacific (Singapore)**.
+1. Buka https://console.neon.tech, bikin project `expenses-tracker`, region **AWS Asia Pacific (Singapore)**.
 2. Klik **Connect**, pilih connection string yang **pooled**, terus copy. Ini `DATABASE_URL`.
 
 Tabel dan data awal (akun Cash, BCA, GoPay, plus kategori) dibikin otomatis waktu deploy ke Vercel (`vercel-build` jalanin `drizzle-kit migrate`).
@@ -34,7 +34,7 @@ Tabel dan data awal (akun Cash, BCA, GoPay, plus kategori) dibikin otomatis wakt
 Bikin key gratis di https://aistudio.google.com/apikey. Ini `AI_API_KEY`.
 
 ### 3. Deploy ke Vercel
-1. Buka https://vercel.com/new, import repo ini, nama project `catatduit`.
+1. Buka https://vercel.com/new, import repo ini, nama project `expenses-tracker`.
 2. Di **Environment Variables**, isi semua yang ada di `.env.example`:
    - `DATABASE_URL`: dari Neon
    - `TELEGRAM_BOT_TOKEN`: dari @BotFather
