@@ -1,8 +1,11 @@
 import { addDays, toIsoDate } from "./dates";
+import { extractUsd } from "./money";
 
 export type ParsedMessage = {
   /** Whole Rupiah, or null when no amount was found. */
   amount: number | null;
+  /** A dollar amount ("$1000", "50 usd") in cents, or null. */
+  usdCents: number | null;
   /** YYYY-MM-DD */
   date: string;
   /** True when the user wrote a date ("kemarin", "5 Nov"...). */
@@ -176,9 +179,11 @@ function tidy(text: string): string {
 
 export function parseMessage(text: string, today: string): ParsedMessage {
   const d = extractDate(text, today);
-  const a = extractAmount(d.text);
+  const u = extractUsd(d.text);
+  const a = extractAmount(u.text);
   return {
     amount: a.amount,
+    usdCents: u.cents,
     date: d.date,
     dateExplicit: d.explicit,
     sign: a.sign,

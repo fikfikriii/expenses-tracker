@@ -1,10 +1,12 @@
 import { Api } from "grammy";
 import { addDays, formatMonthId, todayJakarta } from "@/lib/dates";
+import { ensureTodayRate } from "@/lib/fx";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Runs daily (see vercel.json). On the last day of the month it reminds the owner to update balances.
+// Runs daily (see vercel.json): stores the day's USD rate, and on the last day of the month
+// reminds the owner to update balances.
 export async function GET(req: Request) {
   const secret = process.env.CRON_SECRET;
   const auth = req.headers.get("authorization");
@@ -12,6 +14,9 @@ export async function GET(req: Request) {
   if (secret ? auth !== `Bearer ${secret}` : !fromVercelCron) {
     return new Response("unauthorized", { status: 401 });
   }
+
+  // Store today's USD rate even when nobody opens the app.
+  await ensureTodayRate().catch((e) => console.error("FX", e));
 
   const today = todayJakarta();
   const force = new URL(req.url).searchParams.get("force") === "1";

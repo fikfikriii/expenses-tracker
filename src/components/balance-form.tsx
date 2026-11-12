@@ -5,7 +5,7 @@ import { saveBalances, type FormState } from "@/app/(dash)/actions";
 
 export function BalanceForm({ date, accounts }: {
   date: string;
-  accounts: { id: number; name: string; typeLabel: string; current: string; group: string }[];
+  accounts: { id: number; name: string; typeLabel: string; current: string; group: string; currency: "IDR" | "USD" }[];
 }) {
   const [state, action, pending] = useActionState<FormState, FormData>(saveBalances, null);
   const groups = [...new Set(accounts.map((a) => a.group))];
@@ -22,7 +22,7 @@ export function BalanceForm({ date, accounts }: {
             {accounts.filter((a) => a.group === g).map((a) => (
               <label key={a.id} className="label">
                 <span>
-                  {a.name} <span className="font-normal">· {a.typeLabel}</span>
+                  {a.name} <span className="font-normal">· {a.typeLabel}{a.currency === "USD" ? " · USD" : ""}</span>
                 </span>
                 <input
                   name={`bal_${a.id}`}
@@ -35,7 +35,7 @@ export function BalanceForm({ date, accounts }: {
           </div>
         </div>
       ))}
-      <p className="text-xs text-muted">Kosongin akun yang nggak mau di-update. Nominal bisa ditulis 5200000, 5,2jt, atau 800rb.</p>
+      <p className="text-xs text-muted">Kosongin akun yang nggak mau di-update. Nominal bisa ditulis 5200000, 5,2jt, atau 800rb. Akun USD diisi dolar, misal 1250.50.</p>
       <div className="flex items-center gap-3">
         <button className="btn-primary" disabled={pending}>{pending ? "Menyimpan..." : "Simpan saldo"}</button>
         {state?.error && <p className="text-sm text-red-600">{state.error}</p>}

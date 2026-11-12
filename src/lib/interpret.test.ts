@@ -71,3 +71,27 @@ describe("user categories", () => {
     expect(r).toMatchObject({ ok: true, draft: { type: "income", categoryId: 11 } });
   });
 });
+
+describe("USD", () => {
+  const accs: AccountRef[] = [...accounts, { id: 9, name: "IBKR", aliases: [], isDefault: false, currency: "USD" }];
+  const c = { ...ctx, accounts: accs, usdIdr: 16000 };
+  it("transfers rupiah to a USD account with both amounts", async () => {
+    const r = await interpret("tf 16,3jt bca ke ibkr $1000", c);
+    expect(r).toMatchObject({ ok: true, draft: { type: "transfer", amount: 16_300_000, toAmount: 100_000, accountId: 2, toAccountId: 9 } });
+  });
+  it("estimates the dollars from today's rate", async () => {
+    const r = await interpret("tf 16jt bca ke ibkr", c);
+    expect(r).toMatchObject({ ok: true, draft: { amount: 16_000_000, toAmount: 100_000 } });
+  });
+  it("logs an expense in dollars", async () => {
+    const r = await interpret("$5.50 fee pake ibkr", c);
+    expect(r).toMatchObject({ ok: true, draft: { type: "expense", amount: 550, accountId: 9 } });
+  });
+  it("converts a dollar expense paid from a rupiah account", async () => {
+    const r = await interpret("$10 netflix", c);
+    expect(r).toMatchObject({ ok: true, draft: { amount: 160_000, accountId: 1 } });
+  });
+  it("needs a rate to mix currencies", async () => {
+    expect(await interpret("tf 16jt bca ke ibkr", { ...c, usdIdr: null })).toEqual({ ok: false, reason: "no_rate" });
+  });
+});

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ConfirmButton } from "@/components/confirm-button";
 import { TxForm } from "@/components/tx-form";
+import { toInputValue } from "@/lib/money";
 import { getTransaction, listAllAccounts, listAllCategories } from "@/lib/ledger";
 import { removeTransaction } from "../../actions";
 
@@ -17,6 +18,7 @@ export default async function EditTransaction({ params }: { params: Promise<{ id
 
   // Keep archived items selectable if this transaction already uses them.
   const accs = accounts.filter((a) => !a.archived || a.id === tx.accountId || a.id === tx.toAccountId);
+  const cur = (id: number | null) => accounts.find((a) => a.id === id)?.currency ?? "IDR";
   const cats = categories.filter((c) => !c.archived || c.id === tx.categoryId);
 
   return (
@@ -30,14 +32,15 @@ export default async function EditTransaction({ params }: { params: Promise<{ id
           initial={{
             id: tx.id,
             type: tx.type,
-            amount: tx.amount,
+            amount: toInputValue(tx.amount, cur(tx.accountId)),
+            toAmount: tx.toAmount === null ? undefined : toInputValue(tx.toAmount, cur(tx.toAccountId)),
             occurredOn: tx.occurredOn,
             accountId: tx.accountId,
             toAccountId: tx.toAccountId,
             categoryId: tx.categoryId,
             note: tx.note,
           }}
-          accounts={accs}
+          accounts={accs.map((a) => ({ id: a.id, name: a.name, currency: a.currency }))}
           categories={cats}
           returnTo="/transactions"
         />

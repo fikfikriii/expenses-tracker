@@ -3,12 +3,13 @@
 import { useActionState, useEffect, useRef, useState } from "react";
 import { saveTransaction, type FormState } from "@/app/(dash)/actions";
 
-type Option = { id: number; name: string; icon?: string; kind?: "expense" | "income" };
+type Option = { id: number; name: string; icon?: string; kind?: "expense" | "income"; currency?: "IDR" | "USD" };
 
 export type TxFormValues = {
   id?: number;
   type: "expense" | "income" | "transfer";
-  amount?: number;
+  amount?: string;
+  toAmount?: string;
   occurredOn: string;
   accountId?: number;
   toAccountId?: number | null;
@@ -35,6 +36,12 @@ export function TxForm({
 }) {
   const [state, action, pending] = useActionState<FormState, FormData>(saveTransaction, null);
   const [type, setType] = useState(initial.type);
+  const [fromId, setFromId] = useState(initial.accountId ?? accounts[0]?.id);
+  const [toId, setToId] = useState(initial.toAccountId ?? accounts.find((a) => a.id !== initial.accountId)?.id);
+  const curOf = (id?: number | null) => accounts.find((a) => a.id === id)?.currency ?? "IDR";
+  const fromCur = curOf(fromId);
+  const toCur = curOf(toId);
+  const crossCurrency = type === "transfer" && fromCur !== toCur;
   const formRef = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
@@ -68,12 +75,12 @@ export function TxForm({
       </div>
 
       <label className="label">
-        Nominal
+        Nominal ({fromCur})
         <input
           name="amount"
           required
           inputMode="decimal"
-          placeholder="15000 / 15rb / 1,5jt"
+          placeholder={fromCur === "USD" ? "1250.50" : "15000 / 15rb / 1,5jt"}
           defaultValue={initial.amount ?? ""}
           className="input"
         />
@@ -85,7 +92,7 @@ export function TxForm({
 
       <label className="label">
         {type === "transfer" ? "Dari akun" : "Akun"}
-        <select name="accountId" defaultValue={initial.accountId} className="input">
+        <select name="accountId" value={fromId} onChange={(e) => setFromId(Number(e.target.value))} className="input">
           {accounts.map((a) => (
             <option key={a.id} value={a.id}>{a.name}</option>
           ))}
@@ -95,11 +102,7 @@ export function TxForm({
       {type === "transfer" ? (
         <label className="label">
           Ke akun
-          <select
-            name="toAccountId"
-            defaultValue={initial.toAccountId ?? accounts.find((a) => a.id !== initial.accountId)?.id}
-            className="input"
-          >
+          <select name="toAccountId" value={toId} onChange={(e) => setToId(Number(e.target.value))} className="input">
             {accounts.map((a) => (
               <option key={a.id} value={a.id}>{a.name}</option>
             ))}
@@ -118,6 +121,19 @@ export function TxForm({
               <option key={c.id} value={c.id}>{`${c.icon ?? ""} ${c.name}`.trim()}</option>
             ))}
           </select>
+        </label>
+      )}
+
+      {crossCurrency && (
+        <label className="label sm:col-span-2">
+          Diterima ({toCur}) · kosongin buat pakai kurs hari ini
+          <input
+            name="toAmount"
+            inputMode="decimal"
+            defaultValue={initial.toAmount ?? ""}
+            placeholder={toCur === "USD" ? "1000" : "16300000"}
+            className="input"
+          />
         </label>
       )}
 

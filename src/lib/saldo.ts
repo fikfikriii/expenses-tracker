@@ -1,5 +1,6 @@
 import { hasWord } from "./keywords";
 import { extractAmount, extractDate } from "./parse";
+import { extractUsd, parseDecimal } from "./money";
 import type { AccountRef } from "./accounts";
 
 export type SaldoParse = {
@@ -61,7 +62,8 @@ export function parseSaldo(text: string, accounts: AccountRef[], today: string):
   const missing: AccountRef[] = [];
   found.forEach((m, i) => {
     const segment = rest.slice(m.end, found[i + 1]?.start ?? rest.length);
-    const { amount } = extractAmount(segment.replace(/^[\s:=]+/, " "));
+    const clean = segment.replace(/^[\s:=]+/, " ");
+    const amount = m.account.currency === "USD" ? usdCents(clean) : extractAmount(clean).amount;
     const already = items.some((x) => x.account.id === m.account.id);
     if (amount === null) {
       if (!already) missing.push(m.account);
@@ -70,6 +72,15 @@ export function parseSaldo(text: string, accounts: AccountRef[], today: string):
     }
   });
   return { date: d.date, items, missing };
+}
+
+/** "$1,250.50", "1250.5 usd" or a plain "1.250,50" (for a USD account) -> cents. */
+function usdCents(segment: string): number | null {
+  const u = extractUsd(segment).cents;
+  if (u !== null) return u;
+  const tok = segment.match(/\d[\d.,]*/)?.[0]?.replace(/[.,]$/, "");
+  const n = tok ? parseDecimal(tok) : null;
+  return n === null ? null : Math.round(n * 100);
 }
 
 export { hasWord };

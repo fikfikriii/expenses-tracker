@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { formatDateId, formatRupiah } from "@/lib/dates";
+import { formatDateId } from "@/lib/dates";
+import { formatMoney } from "@/lib/money";
 import type { Account, Category, Transaction } from "@/db/schema";
 
 export function TxList({ rows, accounts, categories }: {
@@ -9,6 +10,7 @@ export function TxList({ rows, accounts, categories }: {
 }) {
   if (rows.length === 0) return <p className="py-6 text-center text-sm text-muted">Belum ada transaksi.</p>;
   const acc = new Map(accounts.map((a) => [a.id, a.name]));
+  const cur = (id: number | null) => accounts.find((a) => a.id === id)?.currency ?? "IDR";
   const cat = new Map(categories.map((c) => [c.id, c]));
   return (
     <ul className="divide-y divide-border">
@@ -34,7 +36,10 @@ export function TxList({ rows, accounts, categories }: {
                 <div className="truncate text-xs text-muted">{sub}</div>
               </div>
               <div className={`shrink-0 text-sm font-medium tabular-nums ${amountClass}`}>
-                {sign}{formatRupiah(t.amount)}
+                {sign}{formatMoney(t.amount, cur(t.accountId))}
+                {t.type === "transfer" && t.toAmount !== null && cur(t.accountId) !== cur(t.toAccountId) && (
+                  <div className="text-xs font-normal text-muted">→ {formatMoney(t.toAmount, cur(t.toAccountId))}</div>
+                )}
               </div>
             </Link>
           </li>

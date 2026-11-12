@@ -6,12 +6,15 @@ import { redirect } from "next/navigation";
 import { SESSION_COOKIE, isValidSession } from "@/lib/auth";
 import { extractAmount } from "@/lib/parse";
 import { schema } from "@/db";
+import { convert, parseFormAmount, type Currency } from "@/lib/money";
+import { currentRate, deleteRate, saveRate } from "@/lib/fx";
 import {
   createAccount,
   createCategory,
   createTransaction,
   deleteSnapshot,
   deleteTransaction,
+  listAllAccounts,
   saveSnapshots,
   updateAccount,
   updateCategory,
@@ -31,12 +34,9 @@ const int = (f: FormData, k: string) => {
   return Number.isInteger(n) && n > 0 ? n : null;
 };
 
-/** Accepts "15000", "15.000", "15rb", "1,5jt". */
-function amountFrom(f: FormData, k: string): number | null {
-  const raw = str(f, k);
-  if (!raw) return null;
-  if (/^-?\d+$/.test(raw)) return Number(raw);
-  return extractAmount(raw).amount;
+/** Amount for an account currency: "15rb" / "1,5jt" for IDR, "1250.50" / "$1,250.50" for USD. */
+function moneyFrom(f: FormData, k: string, currency: Currency): number | null {
+  return parseFormAmount(str(f, k), currency, (s) => extractAmount(s).amount);
 }
 
 /** "Latte, starbucks ,kopken" -> ["latte", "starbucks", "kopken"] */
@@ -53,11 +53,9 @@ function isUniqueViolation(e: unknown): boolean {
   return err?.code === "23505" || err?.cause?.code === "23505";
 }
 
-function readTx(f: FormData): TxInput | string {
+async function readTx(f: FormData): Promise<TxInput | string> {
   const type = str(f, "type") as TxInput["type"];
   if (!["expense", "income", "transfer"].includes(type)) return "Tipe transaksi nggak valid.";
-  const amount = amountFrom(f, "amount");
-  if (!amount || amount <= 0) return "Nominal nggak kebaca.";
   const occurredOn = str(f, "occurredOn");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(occurredOn)) return "Tanggal nggak valid.";
   const accountId = int(f, "accountId");
@@ -68,12 +66,27 @@ function readTx(f: FormData): TxInput | string {
   }
   const categoryId = type === "transfer" ? null : int(f, "categoryId");
   if (type !== "transfer" && !categoryId) return "Pilih kategori.";
-  return { type, amount, occurredOn, accountId, toAccountId, categoryId, note: str(f, "note") };
+
+  const accs = await listAllAccounts();
+  const cur = (id: number | null): Currency => accs.find((a) => a.id === id)?.currency ?? "IDR";
+  const amount = moneyFrom(f, "amount", cur(accountId));
+  if (!amount || amount <= 0) return "Nominal nggak kebaca.";
+
+  let toAmount: number | null = null;
+  if (type === "transfer" && cur(accountId) !== cur(toAccountId)) {
+    toAmount = moneyFrom(f, "toAmount", cur(toAccountId));
+    if (!toAmount) {
+      const rate = await currentRate();
+      if (!rate) return "Kurs USD belum ada. Isi nominal yang diterima, atau isi kurs di halaman Saldo.";
+      toAmount = convert(amount, cur(accountId), cur(toAccountId!), rate);
+    }
+  }
+  return { type, amount, toAmount, occurredOn, accountId, toAccountId, categoryId, note: str(f, "note") };
 }
 
 export async function saveTransaction(_prev: FormState, f: FormData): Promise<FormState> {
   await requireAuth();
-  const input = readTx(f);
+  const input = await readTx(f);
   if (typeof input === "string") return { error: input };
   const id = int(f, "id");
   if (id) await updateTransaction(id, input);
@@ -100,12 +113,14 @@ export async function saveAccount(_prev: FormState, f: FormData): Promise<FormSt
   const type = str(f, "type") as (typeof ACCOUNT_TYPES)[number];
   if (!ACCOUNT_TYPES.includes(type)) return { error: "Tipe akun nggak valid." };
   const raw = str(f, "initialBalance");
-  const initialBalance = raw ? amountFrom(f, "initialBalance") : 0;
+  const initialBalance = raw ? moneyFrom(f, "initialBalance", str(f, "currency") === "USD" ? "USD" : "IDR") : 0;
   if (initialBalance === null) return { error: "Saldo awal nggak kebaca." };
   const aliases = splitList(str(f, "aliases"));
+  const currency = str(f, "currency") === "USD" ? "USD" : "IDR";
   const input = {
     name,
     type,
+    currency: currency as Currency,
     aliases,
     initialBalance,
     isDefault: f.get("isDefault") === "on",
@@ -152,14 +167,15 @@ export async function saveBalances(_prev: FormState, f: FormData): Promise<FormS
   await requireAuth();
   const takenOn = str(f, "takenOn");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(takenOn)) return { error: "Tanggal nggak valid." };
+  const accs = await listAllAccounts();
   const items: { accountId: number; balance: number }[] = [];
   for (const [key] of f.entries()) {
     const m = key.match(/^bal_(\d+)$/);
     if (!m || !str(f, key)) continue;
-    const raw = str(f, key).replace(/^-/, "");
-    const value = /^\d+$/.test(raw) ? Number(raw) : extractAmount(raw).amount;
+    const accountId = Number(m[1]);
+    const value = moneyFrom(f, key, accs.find((a) => a.id === accountId)?.currency ?? "IDR");
     if (value === null) return { error: `Saldo "${str(f, key)}" nggak kebaca.` };
-    items.push({ accountId: Number(m[1]), balance: str(f, key).startsWith("-") ? -value : value });
+    items.push({ accountId, balance: value });
   }
   if (items.length === 0) return { error: "Isi minimal satu saldo." };
   await saveSnapshots(takenOn, items);
@@ -171,5 +187,23 @@ export async function removeSnapshot(f: FormData) {
   await requireAuth();
   const id = int(f, "id");
   if (id) await deleteSnapshot(id);
+  refresh();
+}
+
+export async function saveFxRate(_prev: FormState, f: FormData): Promise<FormState> {
+  await requireAuth();
+  const rateOn = str(f, "rateOn");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(rateOn)) return { error: "Tanggal nggak valid." };
+  const rate = extractAmount(str(f, "usdIdr")).amount ?? Number(str(f, "usdIdr").replace(/\./g, "").replace(",", "."));
+  if (!rate || rate < 1000 || rate > 100000) return { error: "Kurs nggak masuk akal (contoh: 16300)." };
+  await saveRate(rateOn, rate, "manual");
+  refresh();
+  return { ok: true };
+}
+
+export async function removeFxRate(f: FormData) {
+  await requireAuth();
+  const rateOn = str(f, "rateOn");
+  if (rateOn) await deleteRate(rateOn);
   refresh();
 }

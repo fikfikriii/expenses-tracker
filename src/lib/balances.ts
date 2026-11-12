@@ -2,9 +2,16 @@
 // transactions logged after it. Unlogged transfers between accounts therefore
 // never make a balance drift for more than one month.
 
+import { convert, type Currency } from "./money";
+import { rateFrom, type Rate } from "./fx";
+
+// All balances are in the account's own currency (smallest unit);
+// anything summed across accounts is converted to rupiah.
+
 export type BalanceAccount = {
   id: number;
   type: string;
+  currency?: Currency;
   initialBalance: number;
   archived?: boolean;
 };
@@ -15,6 +22,7 @@ export type BalanceTx = {
   occurredOn: string;
   accountId: number;
   toAccountId: number | null;
+  toAmount?: number | null;
 };
 
 export type Snapshot = { accountId: number; takenOn: string; balance: number };
@@ -27,7 +35,7 @@ export function effectOn(tx: BalanceTx, accountId: number): number {
   if (tx.type === "expense") return tx.accountId === accountId ? -tx.amount : 0;
   let e = 0;
   if (tx.accountId === accountId) e -= tx.amount;
-  if (tx.toAccountId === accountId) e += tx.amount;
+  if (tx.toAccountId === accountId) e += tx.toAmount ?? tx.amount;
   return e;
 }
 
@@ -48,12 +56,34 @@ export class BalanceBook {
     readonly accounts: BalanceAccount[],
     snapshots: Snapshot[],
     readonly txs: BalanceTx[],
+    readonly rates: Rate[] = [],
   ) {
     for (const s of [...snapshots].sort((a, b) => a.takenOn.localeCompare(b.takenOn))) {
       const list = this.snapsByAccount.get(s.accountId) ?? [];
       list.push(s);
       this.snapsByAccount.set(s.accountId, list);
     }
+  }
+
+  currencyOf(accountId: number): Currency {
+    return this.accounts.find((a) => a.id === accountId)?.currency ?? "IDR";
+  }
+
+  /** USD -> IDR on a day; null when no rate is known yet. */
+  rate(date: string): number | null {
+    return rateFrom(this.rates, date);
+  }
+
+  /** Converts an amount of this account's currency to rupiah (0 if no rate is known). */
+  toIdr(accountId: number, minor: number, date: string): number {
+    const cur = this.currencyOf(accountId);
+    if (cur === "IDR") return minor;
+    const r = this.rate(date);
+    return r ? convert(minor, cur, "IDR", r) : 0;
+  }
+
+  valueIdr(accountId: number, date: string): number {
+    return this.toIdr(accountId, this.balanceAt(accountId, date), date);
   }
 
   snapshots(accountId: number): Snapshot[] {
@@ -100,20 +130,25 @@ export class BalanceBook {
     return out;
   }
 
-  /** Sum of unrecorded money for snapshots taken in [start, end]. */
+  /** Sum of unrecorded money (in rupiah) for snapshots taken in [start, end]. */
   unrecordedBetween(start: string, end: string): number {
     return this.unrecorded()
       .filter((u) => u.takenOn >= start && u.takenOn <= end)
-      .reduce((s, u) => s + u.diff, 0);
+      .reduce((s, u) => s + this.toIdr(u.accountId, u.diff, u.takenOn), 0);
   }
 
-  /** Net money put into an account through logged transfers (an investment's capital). */
-  netTransfersIn(accountId: number, upTo: string): number {
+  /**
+   * Rupiah put into an account through logged transfers, minus rupiah taken out
+   * (an investment's capital). For a USD account this is what the dollars cost.
+   */
+  capitalIdr(accountId: number, upTo: string): number {
     let s = 0;
     for (const tx of this.txs) {
       if (tx.type !== "transfer" || tx.occurredOn > upTo) continue;
-      if (tx.toAccountId === accountId) s += tx.amount;
-      if (tx.accountId === accountId) s -= tx.amount;
+      if (tx.toAccountId === accountId) s += this.toIdr(tx.accountId, tx.amount, tx.occurredOn);
+      if (tx.accountId === accountId && tx.toAccountId !== null) {
+        s -= this.toIdr(tx.toAccountId, tx.toAmount ?? tx.amount, tx.occurredOn);
+      }
     }
     return s;
   }
@@ -123,7 +158,7 @@ export class BalanceBook {
     let investment = 0;
     for (const a of this.accounts) {
       if (a.archived && !includeArchived) continue;
-      const b = this.balanceAt(a.id, date);
+      const b = this.valueIdr(a.id, date);
       if (isInvestment(a)) investment += b;
       else cash += b;
     }

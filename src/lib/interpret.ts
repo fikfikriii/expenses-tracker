@@ -8,6 +8,7 @@ import {
   looksLikeIncome,
 } from "./keywords";
 import { parseMessage } from "./parse";
+import { convert, type Currency } from "./money";
 
 export type CategoryRef = {
   id: number;
@@ -43,6 +44,8 @@ export type Draft =
   | {
       type: "transfer";
       amount: number;
+      /** Set when the two accounts use different currencies. */
+      toAmount?: number | null;
       date: string;
       accountId: number;
       toAccountId: number;
@@ -51,7 +54,7 @@ export type Draft =
 
 export type InterpretResult =
   | { ok: true; draft: Draft; usedAi: boolean }
-  | { ok: false; reason: "no_amount" };
+  | { ok: false; reason: "no_amount" | "no_rate" };
 
 function capitalize(s: string): string {
   return s ? s[0].toUpperCase() + s.slice(1) : s;
@@ -68,19 +71,40 @@ function stripAccountWords(text: string, word: string | null): string {
 
 export async function interpret(
   text: string,
-  ctx: { today: string; accounts: AccountRef[]; categories: CategoryRef[] },
+  ctx: {
+    today: string;
+    accounts: AccountRef[];
+    categories: CategoryRef[];
+    /** USD -> IDR, for mixing currencies. */
+    usdIdr?: number | null;
+  },
 ): Promise<InterpretResult> {
   const parsed = parseMessage(text, ctx.today);
-  if (!parsed.amount) return { ok: false, reason: "no_amount" };
+  if (!parsed.amount && !parsed.usdCents) return { ok: false, reason: "no_amount" };
+
+  const written: Record<Currency, number | null> = { IDR: parsed.amount, USD: parsed.usdCents };
+  /** The amount in `cur`: as written, or converted from the other currency. */
+  const amountIn = (cur: Currency): number | null => {
+    if (written[cur]) return written[cur];
+    const other: Currency = cur === "IDR" ? "USD" : "IDR";
+    const v = written[other];
+    return v && ctx.usdIdr ? convert(v, other, cur, ctx.usdIdr) : null;
+  };
 
   const transfer = detectTransfer(parsed.rest, ctx.accounts);
   if (transfer) {
+    const fromCur = transfer.from.currency ?? "IDR";
+    const toCur = transfer.to.currency ?? "IDR";
+    const amount = amountIn(fromCur);
+    const toAmount = fromCur === toCur ? null : amountIn(toCur);
+    if (!amount || (fromCur !== toCur && !toAmount)) return { ok: false, reason: "no_rate" };
     return {
       ok: true,
       usedAi: false,
       draft: {
         type: "transfer",
-        amount: parsed.amount,
+        amount,
+        toAmount,
         date: parsed.date,
         accountId: transfer.from.id,
         toAccountId: transfer.to.id,
@@ -90,6 +114,8 @@ export async function interpret(
   }
 
   const { account, matchedWord } = pickAccount(parsed.rest, ctx.accounts);
+  const amount = amountIn(account.currency ?? "IDR");
+  if (!amount) return { ok: false, reason: "no_rate" };
   const rest = stripAccountWords(parsed.rest, matchedWord);
 
   const expenseCats = ctx.categories.filter((c) => c.kind === "expense");
@@ -102,7 +128,7 @@ export async function interpret(
       usedAi: false,
       draft: {
         type: userMatch.kind,
-        amount: parsed.amount,
+        amount,
         date: parsed.date,
         accountId: account.id,
         categoryId: userMatch.id,
@@ -113,7 +139,7 @@ export async function interpret(
 
   const ai = await classifyWithAi({
     text: rest,
-    amount: parsed.amount,
+    amount,
     signHint: parsed.sign,
     expenseCategories: expenseCats.map((c) => c.name),
     incomeCategories: incomeCats.map((c) => c.name),
@@ -136,7 +162,7 @@ export async function interpret(
     usedAi: Boolean(ai),
     draft: {
       type,
-      amount: parsed.amount,
+      amount,
       date: parsed.date,
       accountId: account.id,
       categoryId: category.id,

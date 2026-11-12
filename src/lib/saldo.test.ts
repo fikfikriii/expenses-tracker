@@ -7,6 +7,7 @@ const accounts: AccountRef[] = [
   { id: 2, name: "Mandiri", aliases: ["livin"], isDefault: false },
   { id: 3, name: "SeaBank", aliases: ["sea"], isDefault: false },
   { id: 4, name: "Reksadana", aliases: ["rd", "bibit"], isDefault: false },
+  { id: 5, name: "IBKR", aliases: [], isDefault: false, currency: "USD" },
 ];
 const TODAY = "2026-11-30";
 const pick = (r: ReturnType<typeof parseSaldo>) => r?.items.map((i) => [i.account.id, i.balance]);
@@ -26,6 +27,10 @@ describe("parseSaldo", () => {
     const r = parseSaldo("saldo bca mandiri 2jt", accounts, TODAY);
     expect(pick(r)).toEqual([[2, 2_000_000]]);
     expect(r?.missing.map((a) => a.id)).toEqual([1]);
+  });
+  it("reads dollars for USD accounts", () => {
+    expect(pick(parseSaldo("saldo ibkr $1,250.50 bca 5jt", accounts, TODAY))).toEqual([[5, 125050], [1, 5_000_000]]);
+    expect(pick(parseSaldo("saldo ibkr 1.250,50", accounts, TODAY))).toEqual([[5, 125050]]);
   });
   it("returns null without accounts", () => {
     expect(parseSaldo("/saldo", accounts, TODAY)).toBeNull();

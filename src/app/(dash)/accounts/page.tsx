@@ -1,6 +1,6 @@
 import { AccountForm } from "@/components/entity-forms";
 import { accountTypeLabel } from "@/lib/labels";
-import { formatRupiah } from "@/lib/dates";
+import { formatMoney } from "@/lib/money";
 import { accountBalances, listAllAccounts } from "@/lib/ledger";
 
 export default async function AccountsPage() {
@@ -23,12 +23,13 @@ export default async function AccountsPage() {
                   {a.name}
                   <span className="ml-2 text-xs font-normal text-muted">
                     {accountTypeLabel(a.type)}
+                    {a.currency !== "IDR" && ` · ${a.currency}`}
                     {a.isDefault && " · default"}
                     {a.archived && " · diarsipkan"}
                   </span>
                 </span>
                 <span className={`tabular-nums ${bal < 0 ? "text-red-600" : ""}`}>
-                  {bal < 0 ? "−" : ""}{formatRupiah(Math.abs(bal))}
+                  {formatMoney(bal, a.currency)}
                 </span>
               </summary>
               <div className="mt-4">

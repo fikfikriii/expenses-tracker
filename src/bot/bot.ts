@@ -16,6 +16,8 @@ import {
   summarize,
 } from "@/lib/ledger";
 import { formatDateId, formatMonthId, formatRupiah, monthRange, todayJakarta } from "@/lib/dates";
+import { formatMoney, type Currency } from "@/lib/money";
+import { currentRate } from "@/lib/fx";
 import type { Transaction } from "@/db/schema";
 import { isSaldoMessage, parseSaldo } from "@/lib/saldo";
 import { isInvestment } from "@/lib/balances";
@@ -33,6 +35,10 @@ const HELP = [
   "<b>Update saldo (akhir bulan)</b>",
   "• <code>saldo bca 5,2jt mandiri 3,1jt seabank 800rb</code>",
   "• <code>saldo 31 okt bca 5jt</code> buat tanggal tertentu",
+  "• Akun USD: <code>saldo ibkr $1,250.50</code>",
+  "",
+  "<b>Dolar</b>",
+  "• <code>tf 16,3jt bca ke ibkr $1000</code> (kurs kehitung otomatis)",
   "",
   "<b>Command</b>",
   "/hari_ini – ringkasan hari ini",
@@ -58,20 +64,26 @@ function allowedUserIds(): Set<number> {
 async function describe(tx: Transaction): Promise<string> {
   const [accounts, categories] = await Promise.all([listAccounts(), listCategories()]);
   const acc = (id: number | null) => accounts.find((a) => a.id === id)?.name ?? "?";
+  const cur = (id: number | null): Currency => accounts.find((a) => a.id === id)?.currency ?? "IDR";
   const cat = categories.find((c) => c.id === tx.categoryId);
   const date = formatDateId(tx.occurredOn);
+  const money = formatMoney(tx.amount, cur(tx.accountId));
 
   if (tx.type === "transfer") {
+    const fx =
+      tx.toAmount !== null && cur(tx.accountId) !== cur(tx.toAccountId)
+        ? `\n💱 Diterima ${formatMoney(tx.toAmount, cur(tx.toAccountId))}`
+        : "";
     return [
       "🔁 <b>Transfer dicatat</b>",
-      `${formatRupiah(tx.amount)} · ${escapeHtml(acc(tx.accountId))} → ${escapeHtml(acc(tx.toAccountId))}`,
+      `${money} · ${escapeHtml(acc(tx.accountId))} → ${escapeHtml(acc(tx.toAccountId))}${fx}`,
       `📅 ${date}`,
     ].join("\n");
   }
   const title = tx.type === "income" ? "💰 <b>Pemasukan dicatat</b>" : "💸 <b>Pengeluaran dicatat</b>";
   return [
     title,
-    `${formatRupiah(tx.amount)} · ${cat ? `${cat.icon} ${escapeHtml(cat.name)}`.trim() : "Tanpa kategori"}`,
+    `${money} · ${cat ? `${cat.icon} ${escapeHtml(cat.name)}`.trim() : "Tanpa kategori"}`,
     tx.note ? `📝 ${escapeHtml(tx.note)}` : null,
     `📅 ${date} · 👛 ${escapeHtml(acc(tx.accountId))}`,
   ]
@@ -126,7 +138,10 @@ async function balancesText(): Promise<string> {
     const last = book.lastSnapshot(a.id, today);
     const when = last ? ` <i>(cek ${formatDateId(last.takenOn)})</i>` : "";
     const name = (a as { name?: string }).name ?? "";
-    return `• ${escapeHtml(name)}: ${formatRupiah(book.balanceAt(a.id, today))}${when}`;
+    const c = book.currencyOf(a.id);
+    const native = formatMoney(book.balanceAt(a.id, today), c);
+    const idr = c === "IDR" ? "" : ` (≈${formatRupiah(book.valueIdr(a.id, today))})`;
+    return `• ${escapeHtml(name)}: ${native}${idr}${when}`;
   };
   const cash = active.filter((a) => !isInvestment(a));
   const inv = active.filter(isInvestment);
@@ -134,6 +149,10 @@ async function balancesText(): Promise<string> {
   const lines = ["<b>Saldo sekarang</b>", ...cash.map(line), `<b>Total kas: ${formatRupiah(t.cash)}</b>`];
   if (inv.length) lines.push("", "<b>Investasi</b>", ...inv.map(line), `<b>Total investasi: ${formatRupiah(t.investment)}</b>`);
   lines.push("", `💎 Total kekayaan: <b>${formatRupiah(t.netWorth)}</b>`);
+  const r = book.rate(today);
+  if (book.accounts.some((a) => a.currency === "USD")) {
+    lines.push(r ? `<i>Kurs USD: ${formatRupiah(r)}</i>` : "<i>Kurs USD belum ada, isi di dashboard (Saldo).</i>");
+  }
   lines.push("", "Update: <code>saldo bca 5,2jt mandiri 3jt</code>");
   return lines.join("\n");
 }
@@ -158,22 +177,24 @@ async function handleSaldo(text: string): Promise<string> {
   const lines = [`🏦 <b>Saldo dicatat</b> (${formatDateId(parsed.date)})`];
   for (const { account, balance } of parsed.items) {
     const acc = all.find((a) => a.id === account.id)!;
+    const c = acc.currency;
+    const sgn = (n: number) => `${n < 0 ? "−" : "+"}${formatMoney(Math.abs(n), c)}`;
     const prevSnap = before.snapshots(acc.id).filter((s) => s.takenOn < parsed.date).at(-1);
     let note = "pertama kali dicek";
     if (isInvestment(acc)) {
       if (prevSnap) {
         const ch = balance - (before.balanceAt(acc.id, parsed.date));
         const pct = prevSnap.balance ? Math.round((ch / prevSnap.balance) * 1000) / 10 : 0;
-        note = ch === 0 ? "nggak berubah" : `${ch > 0 ? "naik" : "turun"} ${signed(ch)} (${pct > 0 ? "+" : ""}${pct}%)`;
+        note = ch === 0 ? "nggak berubah" : `${ch > 0 ? "naik" : "turun"} ${sgn(ch)} (${pct > 0 ? "+" : ""}${pct}%)`;
       }
     } else {
       const expected = after.expectedAt(acc.id, parsed.date);
       if (expected !== null) {
         const diff = balance - expected;
-        note = diff === 0 ? "pas ✓" : `selisih ${signed(diff)}`;
+        note = diff === 0 ? "pas ✓" : `selisih ${sgn(diff)}`;
       }
     }
-    lines.push(`• ${escapeHtml(acc.name)}: ${formatRupiah(balance)} — ${note}`);
+    lines.push(`• ${escapeHtml(acc.name)}: ${formatMoney(balance, c)} — ${note}`);
   }
   if (parsed.missing.length) {
     lines.push(`⚠️ Nominal nggak kebaca: ${parsed.missing.map((a) => escapeHtml(a.name)).join(", ")}`);
@@ -255,7 +276,16 @@ export function createBot(token: string) {
     }
 
     const [accounts, categories] = await Promise.all([listAccounts(), listCategories()]);
-    const result = await interpret(text, { today: todayJakarta(), accounts, categories });
+    const usdIdr = accounts.some((a) => a.currency === "USD") || /\$|usd|dollar|dolar/i.test(text)
+      ? await currentRate()
+      : null;
+    const result = await interpret(text, { today: todayJakarta(), accounts, categories, usdIdr });
+    if (!result.ok && result.reason === "no_rate") {
+      return ctx.reply(
+        "Kurs USD belum ada, jadi gua nggak bisa konversi. Tulis dua nominalnya (misal <code>tf 16,3jt bca ke ibkr $1000</code>) atau isi kurs di dashboard (Saldo).",
+        { parse_mode: "HTML" },
+      );
+    }
     if (!result.ok) {
       return ctx.reply(
         "Nominalnya nggak kebaca 🤔 Contoh: <code>15000 makan bubur</code>. Ketik /bantuan buat contoh lain.",

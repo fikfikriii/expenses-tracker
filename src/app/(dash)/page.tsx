@@ -3,6 +3,7 @@ import { TxList } from "@/components/tx-list";
 import { accountTypeLabel } from "@/lib/labels";
 import { formatDateId, formatMonthId, formatRupiah, monthRange, todayJakarta } from "@/lib/dates";
 import { isInvestment } from "@/lib/balances";
+import { formatMoney, type Currency } from "@/lib/money";
 import {
   listAllAccounts,
   loadBalanceBook,
@@ -34,7 +35,7 @@ export default async function Overview({ searchParams }: { searchParams: Promise
   const active = accounts.filter((a) => !a.archived);
   // Balances as of the end of the shown month (or today for the current month).
   const asOf = end < today ? end : today;
-  const bal = (id: number) => book.balanceAt(id, asOf);
+  const usdRate = active.some((a) => a.currency === "USD") ? book.rate(asOf) : undefined;
   const totals = book.totals(asOf);
   const cashAccounts = active.filter((a) => !isInvestment(a));
   const investAccounts = active.filter(isInvestment);
@@ -130,15 +131,14 @@ export default async function Overview({ searchParams }: { searchParams: Promise
             <h2 className="font-medium">Saldo akun</h2>
             <Link className="text-xs text-muted hover:underline" href="/accounts">Kelola</Link>
           </div>
-          <AccountGroup title="Kas & bank" accounts={cashAccounts} bal={bal} lastCheck={(id) => book.lastSnapshot(id, asOf)?.takenOn} />
+          <AccountGroup title="Kas & bank" accounts={cashAccounts} book={book} date={asOf} />
           {investAccounts.length > 0 && (
-            <AccountGroup
-              title="Investasi"
-              accounts={investAccounts}
-              bal={bal}
-              lastCheck={(id) => book.lastSnapshot(id, asOf)?.takenOn}
-              capital={(id) => book.netTransfersIn(id, asOf)}
-            />
+            <AccountGroup title="Investasi" accounts={investAccounts} book={book} date={asOf} showCapital />
+          )}
+          {usdRate !== undefined && (
+            <p className="text-xs text-muted">
+              {usdRate ? `Kurs USD: ${formatRupiah(usdRate)}` : "Kurs USD belum ada. Isi di halaman Saldo."}
+            </p>
           )}
           <Link href="/balances" className="btn self-start">🏦 Update saldo</Link>
         </div>
@@ -172,37 +172,41 @@ function Stat({ label, value, tone, sub }: { label: string; value: string; tone?
   );
 }
 
-type Acc = { id: number; name: string; type: string };
+type Acc = { id: number; name: string; type: string; currency: Currency };
+type Book = Awaited<ReturnType<typeof loadBalanceBook>>;
 
-function AccountGroup({ title, accounts, bal, lastCheck, capital }: {
+function AccountGroup({ title, accounts, book, date, showCapital }: {
   title: string;
   accounts: Acc[];
-  bal: (id: number) => number;
-  lastCheck: (id: number) => string | undefined;
-  capital?: (id: number) => number;
+  book: Book;
+  date: string;
+  showCapital?: boolean;
 }) {
   return (
     <div className="flex flex-col">
       <div className="text-xs font-medium uppercase tracking-wide text-muted">{title}</div>
       <ul className="divide-y divide-border">
         {accounts.map((a) => {
-          const b = bal(a.id);
-          const checked = lastCheck(a.id);
-          const cap = capital?.(a.id) ?? 0;
-          const gain = cap > 0 ? b - cap : null;
+          const native = book.balanceAt(a.id, date);
+          const idr = book.valueIdr(a.id, date);
+          const checked = book.lastSnapshot(a.id, date)?.takenOn;
+          const cap = showCapital ? book.capitalIdr(a.id, date) : 0;
+          const gain = cap > 0 ? idr - cap : null;
           return (
             <li key={a.id} className="flex items-center justify-between gap-3 py-2 text-sm">
               <Link href={`/transactions?account=${a.id}`} className="min-w-0 hover:underline">
                 <div className="truncate">{a.name}</div>
                 <div className="text-xs text-muted">
                   {accountTypeLabel(a.type)}
+                  {a.currency !== "IDR" && ` · ${a.currency}`}
                   {checked ? ` · cek ${formatDateId(checked)}` : " · belum pernah cek"}
                 </div>
               </Link>
               <div className="text-right">
-                <div className={`tabular-nums ${b < 0 ? "text-red-600" : ""}`}>
-                  {b < 0 ? "−" : ""}{formatRupiah(Math.abs(b))}
-                </div>
+                <div className={`tabular-nums ${native < 0 ? "text-red-600" : ""}`}>{formatMoney(native, a.currency)}</div>
+                {a.currency !== "IDR" && (
+                  <div className="text-xs tabular-nums text-muted">≈ {formatRupiah(idr)}</div>
+                )}
                 {gain !== null && (
                   <div className={`text-xs tabular-nums ${gain < 0 ? "text-red-600" : "text-green-600"}`}>
                     modal {formatRupiah(cap)} · {gain < 0 ? "−" : "+"}{Math.abs(Math.round((gain / cap) * 1000) / 10)}%
@@ -220,7 +224,7 @@ function AccountGroup({ title, accounts, bal, lastCheck, capital }: {
 type TrendPoint = { month: string; cash: number; investment: number };
 
 /** Month-end net worth for up to 12 months ending at `month`, starting from the first data. */
-function netWorthTrend(book: Awaited<ReturnType<typeof loadBalanceBook>>, month: string, today: string): TrendPoint[] {
+function netWorthTrend(book: Book, month: string, today: string): TrendPoint[] {
   const dates = [
     ...book.txs.map((t) => t.occurredOn),
     ...book.accounts.flatMap((a) => book.snapshots(a.id).map((s) => s.takenOn)),

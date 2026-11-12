@@ -49,5 +49,6 @@ export function formatMonthId(iso: string): string {
 }
 
 export function formatRupiah(n: number): string {
-  return "Rp" + Math.round(n).toLocaleString("id-ID");
+  const r = Math.round(n);
+  return `${r < 0 ? "-" : ""}Rp${Math.abs(r).toLocaleString("id-ID")}`;
 }

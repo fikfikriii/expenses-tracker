@@ -54,7 +54,32 @@ describe("BalanceBook", () => {
       tx({ type: "transfer", amount: 1_000_000, accountId: 1, toAccountId: 3 }),
       tx({ type: "transfer", amount: 500_000, accountId: 1, toAccountId: 3, occurredOn: "2026-11-20" }),
     ]);
-    expect(b.netTransfersIn(3, "2026-11-30")).toBe(1_500_000);
+    expect(b.capitalIdr(3, "2026-11-30")).toBe(1_500_000);
     expect(b.balanceAt(1, "2026-11-30")).toBe(-1_500_000);
+  });
+});
+
+describe("USD accounts", () => {
+  const accs = [
+    { id: 1, type: "bank", initialBalance: 0, currency: "IDR" as const },
+    { id: 9, type: "investment", initialBalance: 0, currency: "USD" as const },
+  ];
+  const rates = [
+    { rateOn: "2026-11-01", usdIdr: 16000, source: "auto" },
+    { rateOn: "2026-11-20", usdIdr: 16500, source: "auto" },
+  ];
+  const book = new BalanceBook(
+    accs,
+    [{ accountId: 9, takenOn: "2026-11-30", balance: 110_000 }], // $1,100
+    [tx({ type: "transfer", amount: 16_300_000, toAmount: 100_000, accountId: 1, toAccountId: 9, occurredOn: "2026-11-05" })],
+    rates,
+  );
+  it("keeps balances in dollars and converts totals", () => {
+    expect(book.balanceAt(9, "2026-11-10")).toBe(100_000);
+    expect(book.valueIdr(9, "2026-11-10")).toBe(16_000_000);
+    expect(book.totals("2026-11-30")).toEqual({ cash: -16_300_000, investment: 18_150_000, netWorth: 1_850_000 });
+  });
+  it("counts the rupiah paid as capital", () => {
+    expect(book.capitalIdr(9, "2026-11-30")).toBe(16_300_000);
   });
 });

@@ -1,6 +1,12 @@
 import { hasWord } from "./keywords";
 
-export type AccountRef = { id: number; name: string; aliases: string[]; isDefault: boolean };
+export type AccountRef = {
+  id: number;
+  name: string;
+  aliases: string[];
+  isDefault: boolean;
+  currency?: "IDR" | "USD";
+};
 
 const TRANSFER_RE = /^\s*(?:transfer|trf|tf|pindah(?:in)?|mindahin|topup|top\s*up|isi\s+saldo)\b/i;
 

@@ -3,8 +3,19 @@ import { db, schema } from "@/db";
 import type { Draft } from "./interpret";
 import { monthRange, todayJakarta } from "./dates";
 import { BalanceBook } from "./balances";
+import { ensureTodayRate, listRates } from "./fx";
 
 const { accounts, categories, transactions, budgets, telegramUpdates, balanceSnapshots } = schema;
+
+/**
+ * A transaction's amount in rupiah. USD amounts (cents) use the rate on or before the
+ * transaction date, or the earliest known rate.
+ */
+const amountIdr = sql<number>`(case when (select ${accounts.currency} from ${accounts} where ${accounts.id} = ${transactions.accountId}) = 'USD'
+  then round(${transactions.amount} / 100.0 * coalesce(
+    (select r.usd_idr from fx_rates r where r.rate_on <= ${transactions.occurredOn} order by r.rate_on desc limit 1),
+    (select r.usd_idr from fx_rates r order by r.rate_on asc limit 1), 0))
+  else ${transactions.amount} end)`;
 
 export async function listAccounts() {
   return db()
@@ -41,6 +52,7 @@ export async function saveDraft(draft: Draft, rawText: string) {
       occurredOn: draft.date,
       accountId: draft.accountId,
       toAccountId: draft.type === "transfer" ? draft.toAccountId : null,
+      toAmount: draft.type === "transfer" ? (draft.toAmount ?? null) : null,
       categoryId: draft.type === "transfer" ? null : draft.categoryId,
       note: draft.note,
       rawText,
@@ -91,7 +103,7 @@ export async function summarize(start: string, end: string): Promise<Summary> {
       name: categories.name,
       icon: categories.icon,
       kind: categories.kind,
-      total: sql<string>`sum(${transactions.amount})`,
+      total: sql<string>`sum(${amountIdr})`,
     })
     .from(transactions)
     .leftJoin(categories, eq(transactions.categoryId, categories.id))
@@ -126,7 +138,7 @@ export async function budgetStatus(categoryId: number, date: string) {
   if (!budget) return null;
   const { start, end } = monthRange(date);
   const [row] = await db()
-    .select({ spent: sql<string>`coalesce(sum(${transactions.amount}), 0)` })
+    .select({ spent: sql<string>`coalesce(sum(${amountIdr}), 0)` })
     .from(transactions)
     .where(
       and(
@@ -151,8 +163,9 @@ export async function listAllCategories() {
 
 /** Everything needed to compute balances. Fine for a personal ledger (a few thousand rows). */
 export async function loadBalanceBook() {
-  const [accs, snaps, txs] = await Promise.all([
-    db().select().from(accounts),
+  const accs = await db().select().from(accounts);
+  if (accs.some((a) => a.currency !== "IDR")) await ensureTodayRate().catch(() => {});
+  const [snaps, txs, rates] = await Promise.all([
     db().select().from(balanceSnapshots),
     db()
       .select({
@@ -161,10 +174,12 @@ export async function loadBalanceBook() {
         occurredOn: transactions.occurredOn,
         accountId: transactions.accountId,
         toAccountId: transactions.toAccountId,
+        toAmount: transactions.toAmount,
       })
       .from(transactions),
+    listRates(),
   ]);
-  return new BalanceBook(accs, snaps, txs);
+  return new BalanceBook(accs, snaps, txs, rates);
 }
 
 /** Current balance per account. */
@@ -236,6 +251,7 @@ export async function listTransactions(f: TxFilters, limit = 50, offset = 0) {
 export type TxInput = {
   type: "expense" | "income" | "transfer";
   amount: number;
+  toAmount: number | null;
   occurredOn: string;
   accountId: number;
   toAccountId: number | null;
@@ -259,6 +275,7 @@ export async function updateTransaction(id: number, input: TxInput) {
 export type AccountInput = {
   name: string;
   type: (typeof schema.accountType.enumValues)[number];
+  currency: "IDR" | "USD";
   aliases: string[];
   initialBalance: number;
   isDefault: boolean;

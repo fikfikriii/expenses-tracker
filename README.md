@@ -81,6 +81,15 @@ Tiap cek saldo dibandingin sama perkiraan (cek sebelumnya + transaksi tercatat).
 
 Bot ngingetin update saldo tiap tanggal terakhir bulan jam 19.00 WIB (Vercel Cron, `vercel.json`).
 
+### Akun USD
+
+Akun bisa pakai mata uang **USD** (pilih di halaman Akun). Saldo dan transaksinya disimpan dalam dolar.
+
+- Cek saldo: `saldo ibkr $1,250.50` (atau isi dolar di halaman Saldo).
+- Transfer rupiah ke akun USD: tulis dua-duanya, `tf 16,3jt bca ke ibkr $1000`, jadi kurs yang lu dapet (termasuk spread/fee) kecatat. Kalau dolarnya nggak ditulis, diestimasi pakai kurs hari itu.
+- Total kekayaan, laporan, dan budget dihitung dalam rupiah pakai kurs harian USD→IDR yang diambil otomatis (kurs referensi ECB via frankfurter.dev, cadangan open.er-api.com). Kurs bisa diisi manual di halaman Saldo; kurs manual nggak ditimpa.
+- Modal investasi USD = total rupiah yang disetor, jadi untung/rugi dalam rupiah udah termasuk efek kurs.
+
 ### Investasi
 
 Bikin akun dengan tipe **Investasi** (reksadana, saham, emas, crypto). Nilainya di-update lewat cek saldo, naik-turunnya nggak dihitung sebagai pemasukan/pengeluaran atau selisih tak tercatat. Kalau setoran dicatat sebagai transfer (`topup reksadana 1jt dari bca`), dashboard nampilin modal dan untung/ruginya. Setoran ke investasi sebaiknya dicatat, soalnya kalau nggak, akun asalnya bakal kelihatan "pengeluaran lupa dicatat".

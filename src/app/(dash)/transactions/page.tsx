@@ -37,10 +37,12 @@ export default async function TransactionsPage({ searchParams }: { searchParams:
   const activeCategories = categories.filter((c) => !c.archived);
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
+  // Page totals cover rupiah accounts only.
+  const idr = (id: number) => (accounts.find((a) => a.id === id)?.currency ?? "IDR") === "IDR";
   const pageSum = rows.reduce(
     (s, t) => ({
-      income: s.income + (t.type === "income" ? t.amount : 0),
-      expense: s.expense + (t.type === "expense" ? t.amount : 0),
+      income: s.income + (t.type === "income" && idr(t.accountId) ? t.amount : 0),
+      expense: s.expense + (t.type === "expense" && idr(t.accountId) ? t.amount : 0),
     }),
     { income: 0, expense: 0 },
   );
@@ -61,7 +63,7 @@ export default async function TransactionsPage({ searchParams }: { searchParams:
         <div className="mt-4">
           <TxForm
             initial={{ type: "expense", occurredOn: todayJakarta(), accountId: activeAccounts[0]?.id }}
-            accounts={activeAccounts}
+            accounts={activeAccounts.map((a) => ({ id: a.id, name: a.name, currency: a.currency }))}
             categories={activeCategories}
           />
         </div>

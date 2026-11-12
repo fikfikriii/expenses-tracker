@@ -2,6 +2,7 @@ import {
   bigint,
   boolean,
   date,
+  doublePrecision,
   integer,
   pgEnum,
   pgTable,
@@ -12,7 +13,7 @@ import {
   index,
 } from "drizzle-orm/pg-core";
 
-// All amounts are whole Rupiah, stored as bigint.
+// Amounts are bigint in the account currency's smallest unit (see `currency`).
 
 export const accountType = pgEnum("account_type", [
   "cash",
@@ -23,6 +24,10 @@ export const accountType = pgEnum("account_type", [
   "investment",
   "other",
 ]);
+
+// Amounts are stored in the account currency's smallest unit:
+// whole rupiah for IDR, cents for USD.
+export const currency = pgEnum("currency", ["IDR", "USD"]);
 
 export const categoryKind = pgEnum("category_kind", ["expense", "income"]);
 
@@ -36,6 +41,7 @@ export const accounts = pgTable("accounts", {
   id: serial("id").primaryKey(),
   name: text("name").notNull().unique(),
   type: accountType("type").notNull().default("other"),
+  currency: currency("currency").notNull().default("IDR"),
   // Extra words the bot accepts for this account, e.g. ["bca", "m-banking"].
   aliases: text("aliases").array().notNull().default([]),
   initialBalance: bigint("initial_balance", { mode: "number" }).notNull().default(0),
@@ -64,7 +70,10 @@ export const transactions = pgTable(
   {
     id: serial("id").primaryKey(),
     type: transactionType("type").notNull(),
+    // In the source account's currency.
     amount: bigint("amount", { mode: "number" }).notNull(),
+    // Transfers between currencies: what arrived, in the destination account's currency.
+    toAmount: bigint("to_amount", { mode: "number" }),
     occurredOn: date("occurred_on", { mode: "string" }).notNull(),
     // Null for transfers.
     categoryId: integer("category_id").references(() => categories.id),
@@ -100,6 +109,14 @@ export const balanceSnapshots = pgTable(
   },
   (t) => [unique("balance_snapshots_account_day").on(t.accountId, t.takenOn)],
 );
+
+// USD -> IDR rate per day. "auto" rates are fetched daily; "manual" ones are typed in and win.
+export const fxRates = pgTable("fx_rates", {
+  rateOn: date("rate_on", { mode: "string" }).primaryKey(),
+  usdIdr: doublePrecision("usd_idr").notNull(),
+  source: text("source").notNull().default("auto"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 // Monthly limit per expense category, applied to every month.
 export const budgets = pgTable("budgets", {

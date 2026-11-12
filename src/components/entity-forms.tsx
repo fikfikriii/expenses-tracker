@@ -3,6 +3,7 @@
 import { useActionState, useEffect, useRef } from "react";
 import { saveAccount, saveCategory, type FormState } from "@/app/(dash)/actions";
 import { ACCOUNT_TYPES } from "@/lib/labels";
+import { toInputValue } from "@/lib/money";
 
 
 function Status({ state, isNew }: { state: FormState; isNew: boolean }) {
@@ -22,7 +23,7 @@ function useResetOnSuccess(state: FormState, isNew: boolean) {
 export function AccountForm({ account }: {
   account?: {
     id: number; name: string; type: string; aliases: string[];
-    initialBalance: number; isDefault: boolean; archived: boolean;
+    initialBalance: number; isDefault: boolean; archived: boolean; currency: "IDR" | "USD";
   };
 }) {
   const [state, action, pending] = useActionState<FormState, FormData>(saveAccount, null);
@@ -41,11 +42,18 @@ export function AccountForm({ account }: {
         </select>
       </label>
       <label className="label">
+        Mata uang
+        <select name="currency" defaultValue={account?.currency ?? "IDR"} className="input">
+          <option value="IDR">IDR (Rupiah)</option>
+          <option value="USD">USD (Dolar)</option>
+        </select>
+      </label>
+      <label className="label">
         Saldo awal (sebelum cek saldo pertama)
         <input
           name="initialBalance"
           inputMode="decimal"
-          defaultValue={account?.initialBalance ?? ""}
+          defaultValue={account ? toInputValue(account.initialBalance, account.currency) : ""}
           placeholder="0 / 1,5jt"
           className="input"
         />
