@@ -10,6 +10,6 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  // Everything except the login page, the Telegram webhook and static files.
-  matcher: ["/((?!login|api/telegram|_next/static|_next/image|favicon.ico).*)"],
+  // Everything except the login page, the Telegram webhook, cron jobs and static files.
+  matcher: ["/((?!login|api/telegram|api/cron|_next/static|_next/image|favicon.ico).*)"],
 };

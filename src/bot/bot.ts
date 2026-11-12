@@ -7,6 +7,9 @@ import {
   getTransaction,
   lastTransaction,
   listAccounts,
+  listAllAccounts,
+  loadBalanceBook,
+  saveSnapshots,
   listCategories,
   saveDraft,
   setTransactionCategory,
@@ -14,6 +17,8 @@ import {
 } from "@/lib/ledger";
 import { formatDateId, formatMonthId, formatRupiah, monthRange, todayJakarta } from "@/lib/dates";
 import type { Transaction } from "@/db/schema";
+import { isSaldoMessage, parseSaldo } from "@/lib/saldo";
+import { isInvestment } from "@/lib/balances";
 
 const HELP = [
   "<b>Cara pakai</b>",
@@ -23,12 +28,17 @@ const HELP = [
   "• <code>5 November 2026, 15000 makan bubur</code>",
   "• <code>50rb bensin pake bca</code>",
   "• <code>gajian 8jt</code> atau <code>+500rb freelance</code>",
-  "• <code>transfer 1jt bca ke gopay</code>",
+  "• <code>transfer 1jt bca ke gopay</code> (opsional)",
+  "",
+  "<b>Update saldo (akhir bulan)</b>",
+  "• <code>saldo bca 5,2jt mandiri 3,1jt seabank 800rb</code>",
+  "• <code>saldo 31 okt bca 5jt</code> buat tanggal tertentu",
   "",
   "<b>Command</b>",
   "/hari_ini – ringkasan hari ini",
   "/bulan_ini – ringkasan bulan ini",
   "/hapus – hapus transaksi terakhir",
+  "/saldo – lihat saldo semua akun",
   "/bantuan – pesan ini",
 ].join("\n");
 
@@ -104,6 +114,90 @@ async function summaryText(title: string, start: string, end: string): Promise<s
   return lines.join("\n");
 }
 
+function signed(n: number): string {
+  return `${n < 0 ? "−" : "+"}${formatRupiah(Math.abs(n))}`;
+}
+
+async function balancesText(): Promise<string> {
+  const today = todayJakarta();
+  const book = await loadBalanceBook();
+  const active = book.accounts.filter((a) => !a.archived);
+  const line = (a: (typeof active)[number]) => {
+    const last = book.lastSnapshot(a.id, today);
+    const when = last ? ` <i>(cek ${formatDateId(last.takenOn)})</i>` : "";
+    const name = (a as { name?: string }).name ?? "";
+    return `• ${escapeHtml(name)}: ${formatRupiah(book.balanceAt(a.id, today))}${when}`;
+  };
+  const cash = active.filter((a) => !isInvestment(a));
+  const inv = active.filter(isInvestment);
+  const t = book.totals(today);
+  const lines = ["<b>Saldo sekarang</b>", ...cash.map(line), `<b>Total kas: ${formatRupiah(t.cash)}</b>`];
+  if (inv.length) lines.push("", "<b>Investasi</b>", ...inv.map(line), `<b>Total investasi: ${formatRupiah(t.investment)}</b>`);
+  lines.push("", `💎 Total kekayaan: <b>${formatRupiah(t.netWorth)}</b>`);
+  lines.push("", "Update: <code>saldo bca 5,2jt mandiri 3jt</code>");
+  return lines.join("\n");
+}
+
+async function handleSaldo(text: string): Promise<string> {
+  const accounts = await listAccounts();
+  const today = todayJakarta();
+  const parsed = parseSaldo(text, accounts, today);
+  if (!parsed) return balancesText();
+  if (parsed.items.length === 0) {
+    return `Nominal saldonya nggak kebaca buat: ${parsed.missing.map((a) => escapeHtml(a.name)).join(", ")}. Contoh: <code>saldo bca 5,2jt</code>`;
+  }
+
+  const before = await loadBalanceBook();
+  await saveSnapshots(
+    parsed.date,
+    parsed.items.map((i) => ({ accountId: i.account.id, balance: i.balance })),
+  );
+  const after = await loadBalanceBook();
+  const all = await listAllAccounts();
+
+  const lines = [`🏦 <b>Saldo dicatat</b> (${formatDateId(parsed.date)})`];
+  for (const { account, balance } of parsed.items) {
+    const acc = all.find((a) => a.id === account.id)!;
+    const prevSnap = before.snapshots(acc.id).filter((s) => s.takenOn < parsed.date).at(-1);
+    let note = "pertama kali dicek";
+    if (isInvestment(acc)) {
+      if (prevSnap) {
+        const ch = balance - (before.balanceAt(acc.id, parsed.date));
+        const pct = prevSnap.balance ? Math.round((ch / prevSnap.balance) * 1000) / 10 : 0;
+        note = ch === 0 ? "nggak berubah" : `${ch > 0 ? "naik" : "turun"} ${signed(ch)} (${pct > 0 ? "+" : ""}${pct}%)`;
+      }
+    } else {
+      const expected = after.expectedAt(acc.id, parsed.date);
+      if (expected !== null) {
+        const diff = balance - expected;
+        note = diff === 0 ? "pas ✓" : `selisih ${signed(diff)}`;
+      }
+    }
+    lines.push(`• ${escapeHtml(acc.name)}: ${formatRupiah(balance)} — ${note}`);
+  }
+  if (parsed.missing.length) {
+    lines.push(`⚠️ Nominal nggak kebaca: ${parsed.missing.map((a) => escapeHtml(a.name)).join(", ")}`);
+  }
+
+  const { start, end } = monthRange(parsed.date);
+  const monthDiff = after.unrecordedBetween(start, end);
+  const hasCompared = after.unrecorded().some((u) => u.takenOn >= start && u.takenOn <= end);
+  if (hasCompared) {
+    lines.push(
+      "",
+      `Selisih tak tercatat ${formatMonthId(parsed.date)}: <b>${monthDiff === 0 ? "Rp0 ✓" : signed(monthDiff)}</b>`,
+      monthDiff > 0
+        ? "<i>Plus = bunga, cashback, atau pemasukan yang belum dicatat.</i>"
+        : monthDiff < 0
+          ? "<i>Minus = ada pengeluaran yang belum dicatat.</i>"
+          : "",
+    );
+  }
+  const t = after.totals(today);
+  lines.push("", `💎 Total kekayaan: ${formatRupiah(t.netWorth)}`);
+  return lines.filter((l, i, arr) => !(l === "" && arr[i - 1] === "")).join("\n").trim();
+}
+
 export function createBot(token: string) {
   const bot = new Bot<Context>(token);
 
@@ -142,6 +236,10 @@ export function createBot(token: string) {
     await ctx.reply(await summaryText(formatMonthId(today), start, end), { parse_mode: "HTML" });
   });
 
+  bot.command("saldo", async (ctx) => {
+    await ctx.reply(await handleSaldo(ctx.message?.text ?? "/saldo"), { parse_mode: "HTML" });
+  });
+
   bot.command("hapus", async (ctx) => {
     const tx = await lastTransaction();
     if (!tx) return ctx.reply("Belum ada transaksi.");
@@ -152,6 +250,9 @@ export function createBot(token: string) {
   bot.on("message:text", async (ctx) => {
     const text = ctx.message.text;
     if (text.startsWith("/")) return ctx.reply("Command nggak dikenal. Coba /bantuan");
+    if (isSaldoMessage(text)) {
+      return ctx.reply(await handleSaldo(text), { parse_mode: "HTML" });
+    }
 
     const [accounts, categories] = await Promise.all([listAccounts(), listCategories()]);
     const result = await interpret(text, { today: todayJakarta(), accounts, categories });

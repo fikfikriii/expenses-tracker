@@ -41,7 +41,7 @@ export function AccountForm({ account }: {
         </select>
       </label>
       <label className="label">
-        Saldo awal
+        Saldo awal (sebelum cek saldo pertama)
         <input
           name="initialBalance"
           inputMode="decimal"

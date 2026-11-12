@@ -20,6 +20,7 @@ export const accountType = pgEnum("account_type", [
   "ewallet",
   "savings",
   "credit_card",
+  "investment",
   "other",
 ]);
 
@@ -84,6 +85,22 @@ export const transactions = pgTable(
   ],
 );
 
+// Real balance of an account at the end of a day (from the month-end check).
+// Balances are computed from the latest snapshot plus transactions after it.
+export const balanceSnapshots = pgTable(
+  "balance_snapshots",
+  {
+    id: serial("id").primaryKey(),
+    accountId: integer("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    takenOn: date("taken_on", { mode: "string" }).notNull(),
+    balance: bigint("balance", { mode: "number" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique("balance_snapshots_account_day").on(t.accountId, t.takenOn)],
+);
+
 // Monthly limit per expense category, applied to every month.
 export const budgets = pgTable("budgets", {
   id: serial("id").primaryKey(),
@@ -104,4 +121,5 @@ export const telegramUpdates = pgTable("telegram_updates", {
 export type Account = typeof accounts.$inferSelect;
 export type Category = typeof categories.$inferSelect;
 export type Transaction = typeof transactions.$inferSelect;
+export type BalanceSnapshot = typeof balanceSnapshots.$inferSelect;
 export type NewTransaction = typeof transactions.$inferInsert;

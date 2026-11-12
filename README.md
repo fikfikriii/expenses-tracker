@@ -9,10 +9,11 @@ kemarin 25rb bensin          -> Pengeluaran Rp25.000, Transport, kemarin
 5 November 2026, 15000 bubur -> tanggal 5 Nov 2026
 50rb bensin pake bca         -> dicatat dari akun BCA
 gajian 8jt / +500rb freelance -> Pemasukan
-transfer 1jt bca ke gopay    -> Transfer antar akun (nggak dihitung pengeluaran)
+transfer 1jt bca ke gopay    -> Transfer antar akun (opsional, nggak dihitung pengeluaran)
+saldo bca 5,2jt mandiri 3jt  -> Catat saldo asli akhir bulan
 ```
 
-Command: `/hari_ini`, `/bulan_ini`, `/hapus` (hapus transaksi terakhir), `/bantuan`.
+Command: `/hari_ini`, `/bulan_ini`, `/saldo`, `/hapus` (hapus transaksi terakhir), `/bantuan`.
 Tiap catatan ada tombol **Ganti kategori** dan **Batal**.
 
 ## Cara kerja
@@ -70,7 +71,19 @@ Buka domain Vercel lu, login pakai `DASHBOARD_PASSWORD`.
 - **Akun**: tambah akun tanpa batas (tunai, bank, e-wallet, tabungan, kartu kredit), saldo awal, alias buat bot, akun default, arsip.
 - **Kategori**: tambah, ganti nama/ikon, arsip. Kategori baru langsung dipakai AI.
 
-Saldo akun = saldo awal + pemasukan − pengeluaran ± transfer.
+- **Saldo**: catat saldo asli tiap akun (akhir bulan), lihat selisih tak tercatat dan riwayat cek saldo.
+
+### Saldo dan selisih tak tercatat
+
+Saldo akun = **cek saldo terakhir** + transaksi yang dicatat sesudahnya (kalau belum pernah cek: saldo awal + semua transaksi). Jadi transfer antar akun nggak wajib dicatat: tiap cek saldo, angkanya balik ke angka asli.
+
+Tiap cek saldo dibandingin sama perkiraan (cek sebelumnya + transaksi tercatat). Karena transfer antar akun saling nutup, total selisihnya = **bunga/cashback/pemasukan yang lupa dicatat** (plus) atau **pengeluaran yang lupa dicatat** (minus). Selisih ini nggak masuk grafik pengeluaran.
+
+Bot ngingetin update saldo tiap tanggal terakhir bulan jam 19.00 WIB (Vercel Cron, `vercel.json`).
+
+### Investasi
+
+Bikin akun dengan tipe **Investasi** (reksadana, saham, emas, crypto). Nilainya di-update lewat cek saldo, naik-turunnya nggak dihitung sebagai pemasukan/pengeluaran atau selisih tak tercatat. Kalau setoran dicatat sebagai transfer (`topup reksadana 1jt dari bca`), dashboard nampilin modal dan untung/ruginya. Setoran ke investasi sebaiknya dicatat, soalnya kalau nggak, akun asalnya bakal kelihatan "pengeluaran lupa dicatat".
 
 ## Development
 

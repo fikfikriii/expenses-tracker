@@ -10,7 +10,9 @@ import {
   createAccount,
   createCategory,
   createTransaction,
+  deleteSnapshot,
   deleteTransaction,
+  saveSnapshots,
   updateAccount,
   updateCategory,
   updateTransaction,
@@ -144,4 +146,30 @@ export async function saveCategory(_prev: FormState, f: FormData): Promise<FormS
   }
   refresh();
   return { ok: true };
+}
+
+export async function saveBalances(_prev: FormState, f: FormData): Promise<FormState> {
+  await requireAuth();
+  const takenOn = str(f, "takenOn");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(takenOn)) return { error: "Tanggal nggak valid." };
+  const items: { accountId: number; balance: number }[] = [];
+  for (const [key] of f.entries()) {
+    const m = key.match(/^bal_(\d+)$/);
+    if (!m || !str(f, key)) continue;
+    const raw = str(f, key).replace(/^-/, "");
+    const value = /^\d+$/.test(raw) ? Number(raw) : extractAmount(raw).amount;
+    if (value === null) return { error: `Saldo "${str(f, key)}" nggak kebaca.` };
+    items.push({ accountId: Number(m[1]), balance: str(f, key).startsWith("-") ? -value : value });
+  }
+  if (items.length === 0) return { error: "Isi minimal satu saldo." };
+  await saveSnapshots(takenOn, items);
+  refresh();
+  return { ok: true };
+}
+
+export async function removeSnapshot(f: FormData) {
+  await requireAuth();
+  const id = int(f, "id");
+  if (id) await deleteSnapshot(id);
+  refresh();
 }

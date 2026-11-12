@@ -4,6 +4,7 @@ export const ACCOUNT_TYPES = [
   { value: "ewallet", label: "E-wallet" },
   { value: "savings", label: "Tabungan" },
   { value: "credit_card", label: "Kartu kredit" },
+  { value: "investment", label: "Investasi" },
   { value: "other", label: "Lainnya" },
 ];
 

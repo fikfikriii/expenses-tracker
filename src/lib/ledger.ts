@@ -1,9 +1,10 @@
 import { and, asc, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Draft } from "./interpret";
-import { monthRange } from "./dates";
+import { monthRange, todayJakarta } from "./dates";
+import { BalanceBook } from "./balances";
 
-const { accounts, categories, transactions, budgets, telegramUpdates } = schema;
+const { accounts, categories, transactions, budgets, telegramUpdates, balanceSnapshots } = schema;
 
 export async function listAccounts() {
   return db()
@@ -148,25 +149,51 @@ export async function listAllCategories() {
   return db().select().from(categories).orderBy(asc(categories.archived), asc(categories.kind), asc(categories.id));
 }
 
-/** Current balance per account: opening balance plus every transaction up to today. */
-export async function accountBalances() {
-  const rows = await db()
-    .select({
-      id: accounts.id,
-      initial: accounts.initialBalance,
-      delta: sql<string>`coalesce(sum(case
-        when ${transactions.type} = 'income' and ${transactions.accountId} = ${accounts.id} then ${transactions.amount}
-        when ${transactions.type} in ('expense', 'transfer') and ${transactions.accountId} = ${accounts.id} then -${transactions.amount}
-        when ${transactions.type} = 'transfer' and ${transactions.toAccountId} = ${accounts.id} then ${transactions.amount}
-        else 0 end), 0)`,
-    })
-    .from(accounts)
-    .leftJoin(
-      transactions,
-      sql`${transactions.accountId} = ${accounts.id} or ${transactions.toAccountId} = ${accounts.id}`,
-    )
-    .groupBy(accounts.id);
-  return new Map(rows.map((r) => [r.id, r.initial + Number(r.delta)]));
+/** Everything needed to compute balances. Fine for a personal ledger (a few thousand rows). */
+export async function loadBalanceBook() {
+  const [accs, snaps, txs] = await Promise.all([
+    db().select().from(accounts),
+    db().select().from(balanceSnapshots),
+    db()
+      .select({
+        type: transactions.type,
+        amount: transactions.amount,
+        occurredOn: transactions.occurredOn,
+        accountId: transactions.accountId,
+        toAccountId: transactions.toAccountId,
+      })
+      .from(transactions),
+  ]);
+  return new BalanceBook(accs, snaps, txs);
+}
+
+/** Current balance per account. */
+export async function accountBalances(date = todayJakarta()) {
+  const book = await loadBalanceBook();
+  return new Map(book.accounts.map((a) => [a.id, book.balanceAt(a.id, date)]));
+}
+
+/** Insert or replace the balance of each account on one day. */
+export async function saveSnapshots(takenOn: string, items: { accountId: number; balance: number }[]) {
+  if (items.length === 0) return;
+  await db()
+    .insert(balanceSnapshots)
+    .values(items.map((i) => ({ ...i, takenOn })))
+    .onConflictDoUpdate({
+      target: [balanceSnapshots.accountId, balanceSnapshots.takenOn],
+      set: { balance: sql`excluded.balance`, createdAt: sql`now()` },
+    });
+}
+
+export async function deleteSnapshot(id: number) {
+  await db().delete(balanceSnapshots).where(eq(balanceSnapshots.id, id));
+}
+
+export async function listSnapshots() {
+  return db()
+    .select()
+    .from(balanceSnapshots)
+    .orderBy(desc(balanceSnapshots.takenOn), asc(balanceSnapshots.accountId));
 }
 
 export type TxFilters = {

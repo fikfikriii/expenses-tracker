@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { TxList } from "@/components/tx-list";
 import { accountTypeLabel } from "@/lib/labels";
-import { formatMonthId, formatRupiah, monthRange, todayJakarta } from "@/lib/dates";
+import { formatDateId, formatMonthId, formatRupiah, monthRange, todayJakarta } from "@/lib/dates";
+import { isInvestment } from "@/lib/balances";
 import {
-  accountBalances,
   listAllAccounts,
+  loadBalanceBook,
   listAllCategories,
   recentTransactions,
   summarize,
@@ -22,16 +23,24 @@ export default async function Overview({ searchParams }: { searchParams: Promise
   const month = /^\d{4}-\d{2}$/.test(monthParam ?? "") ? monthParam! : today.slice(0, 7);
   const { start, end } = monthRange(`${month}-01`);
 
-  const [summary, balances, accounts, categories, recent] = await Promise.all([
+  const [summary, book, accounts, categories, recent] = await Promise.all([
     summarize(start, end),
-    accountBalances(),
+    loadBalanceBook(),
     listAllAccounts(),
     listAllCategories(),
     recentTransactions(8),
   ]);
 
   const active = accounts.filter((a) => !a.archived);
-  const totalBalance = active.reduce((s, a) => s + (balances.get(a.id) ?? 0), 0);
+  // Balances as of the end of the shown month (or today for the current month).
+  const asOf = end < today ? end : today;
+  const bal = (id: number) => book.balanceAt(id, asOf);
+  const totals = book.totals(asOf);
+  const cashAccounts = active.filter((a) => !isInvestment(a));
+  const investAccounts = active.filter(isInvestment);
+  const unrecordedParts = book.unrecorded().filter((u) => u.takenOn >= start && u.takenOn <= end);
+  const unrecorded = unrecordedParts.reduce((s, u) => s + u.diff, 0);
+  const trend = netWorthTrend(book, month, today);
   const expenseCats = summary.byCategory.filter((c) => c.kind === "expense");
   const maxCat = Math.max(1, ...expenseCats.map((c) => c.total));
   const net = summary.income - summary.expense;
@@ -56,8 +65,30 @@ export default async function Overview({ searchParams }: { searchParams: Promise
           value={`${net < 0 ? "−" : ""}${formatRupiah(Math.abs(net))}`}
           tone={net < 0 ? "text-red-600" : "text-green-600"}
         />
-        <Stat label="Total saldo" value={formatRupiah(totalBalance)} />
+        <Stat
+          label="Total kekayaan"
+          value={formatRupiah(totals.netWorth)}
+          sub={totals.investment ? `Kas ${formatRupiah(totals.cash)} · Investasi ${formatRupiah(totals.investment)}` : undefined}
+        />
       </section>
+
+      {unrecordedParts.length > 0 && (
+        <Link href="/balances" className="card flex items-center justify-between gap-3 hover:opacity-90">
+          <div>
+            <div className="text-sm font-medium">Selisih tak tercatat bulan ini</div>
+            <div className="text-xs text-muted">
+              {unrecorded > 0
+                ? "Kemungkinan bunga, cashback, atau pemasukan yang belum dicatat."
+                : unrecorded < 0
+                  ? "Ada pengeluaran yang belum dicatat."
+                  : "Semua kecatat, mantap."}
+            </div>
+          </div>
+          <div className={`text-lg font-semibold tabular-nums ${unrecorded < 0 ? "text-red-600" : unrecorded > 0 ? "text-green-600" : ""}`}>
+            {unrecorded === 0 ? "Rp0 ✓" : `${unrecorded < 0 ? "−" : "+"}${formatRupiah(Math.abs(unrecorded))}`}
+          </div>
+        </Link>
+      )}
 
       <section className="grid gap-6 md:grid-cols-2">
         <div className="card flex flex-col gap-3">
@@ -99,24 +130,26 @@ export default async function Overview({ searchParams }: { searchParams: Promise
             <h2 className="font-medium">Saldo akun</h2>
             <Link className="text-xs text-muted hover:underline" href="/accounts">Kelola</Link>
           </div>
-          <ul className="divide-y divide-border">
-            {active.map((a) => {
-              const bal = balances.get(a.id) ?? 0;
-              return (
-                <li key={a.id} className="flex items-center justify-between py-2 text-sm">
-                  <Link href={`/transactions?account=${a.id}`} className="hover:underline">
-                    {a.name}
-                    <span className="ml-2 text-xs text-muted">{accountTypeLabel(a.type)}</span>
-                  </Link>
-                  <span className={`tabular-nums ${bal < 0 ? "text-red-600" : ""}`}>
-                    {bal < 0 ? "−" : ""}{formatRupiah(Math.abs(bal))}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
+          <AccountGroup title="Kas & bank" accounts={cashAccounts} bal={bal} lastCheck={(id) => book.lastSnapshot(id, asOf)?.takenOn} />
+          {investAccounts.length > 0 && (
+            <AccountGroup
+              title="Investasi"
+              accounts={investAccounts}
+              bal={bal}
+              lastCheck={(id) => book.lastSnapshot(id, asOf)?.takenOn}
+              capital={(id) => book.netTransfersIn(id, asOf)}
+            />
+          )}
+          <Link href="/balances" className="btn self-start">🏦 Update saldo</Link>
         </div>
       </section>
+
+      {trend.length > 1 && (
+        <section className="card flex flex-col gap-3">
+          <h2 className="font-medium">Total kekayaan per bulan</h2>
+          <NetWorthBars data={trend} />
+        </section>
+      )}
 
       <section className="card flex flex-col gap-2">
         <div className="flex items-center justify-between">
@@ -129,11 +162,127 @@ export default async function Overview({ searchParams }: { searchParams: Promise
   );
 }
 
-function Stat({ label, value, tone }: { label: string; value: string; tone?: string }) {
+function Stat({ label, value, tone, sub }: { label: string; value: string; tone?: string; sub?: string }) {
   return (
     <div className="card">
       <div className="text-xs text-muted">{label}</div>
       <div className={`mt-1 text-lg font-semibold tabular-nums ${tone ?? ""}`}>{value}</div>
+      {sub && <div className="mt-0.5 text-[11px] text-muted">{sub}</div>}
+    </div>
+  );
+}
+
+type Acc = { id: number; name: string; type: string };
+
+function AccountGroup({ title, accounts, bal, lastCheck, capital }: {
+  title: string;
+  accounts: Acc[];
+  bal: (id: number) => number;
+  lastCheck: (id: number) => string | undefined;
+  capital?: (id: number) => number;
+}) {
+  return (
+    <div className="flex flex-col">
+      <div className="text-xs font-medium uppercase tracking-wide text-muted">{title}</div>
+      <ul className="divide-y divide-border">
+        {accounts.map((a) => {
+          const b = bal(a.id);
+          const checked = lastCheck(a.id);
+          const cap = capital?.(a.id) ?? 0;
+          const gain = cap > 0 ? b - cap : null;
+          return (
+            <li key={a.id} className="flex items-center justify-between gap-3 py-2 text-sm">
+              <Link href={`/transactions?account=${a.id}`} className="min-w-0 hover:underline">
+                <div className="truncate">{a.name}</div>
+                <div className="text-xs text-muted">
+                  {accountTypeLabel(a.type)}
+                  {checked ? ` · cek ${formatDateId(checked)}` : " · belum pernah cek"}
+                </div>
+              </Link>
+              <div className="text-right">
+                <div className={`tabular-nums ${b < 0 ? "text-red-600" : ""}`}>
+                  {b < 0 ? "−" : ""}{formatRupiah(Math.abs(b))}
+                </div>
+                {gain !== null && (
+                  <div className={`text-xs tabular-nums ${gain < 0 ? "text-red-600" : "text-green-600"}`}>
+                    modal {formatRupiah(cap)} · {gain < 0 ? "−" : "+"}{Math.abs(Math.round((gain / cap) * 1000) / 10)}%
+                  </div>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+type TrendPoint = { month: string; cash: number; investment: number };
+
+/** Month-end net worth for up to 12 months ending at `month`, starting from the first data. */
+function netWorthTrend(book: Awaited<ReturnType<typeof loadBalanceBook>>, month: string, today: string): TrendPoint[] {
+  const dates = [
+    ...book.txs.map((t) => t.occurredOn),
+    ...book.accounts.flatMap((a) => book.snapshots(a.id).map((s) => s.takenOn)),
+  ].sort();
+  if (dates.length === 0) return [];
+  const first = dates[0].slice(0, 7);
+  const out: TrendPoint[] = [];
+  for (let i = 11; i >= 0; i--) {
+    const m = shiftMonth(month, -i);
+    if (m < first || m > today.slice(0, 7)) continue;
+    const { end } = monthRange(`${m}-01`);
+    const t = book.totals(end < today ? end : today);
+    out.push({ month: m, cash: t.cash, investment: t.investment });
+  }
+  return out;
+}
+
+function compact(n: number): string {
+  const abs = Math.abs(n);
+  const sign = n < 0 ? "−" : "";
+  if (abs >= 1e9) return `${sign}${(abs / 1e9).toFixed(1).replace(".0", "")}M`;
+  if (abs >= 1e6) return `${sign}${(abs / 1e6).toFixed(1).replace(".0", "")}jt`;
+  if (abs >= 1e3) return `${sign}${Math.round(abs / 1e3)}rb`;
+  return `${sign}${abs}`;
+}
+
+function NetWorthBars({ data }: { data: TrendPoint[] }) {
+  const max = Math.max(1, ...data.map((d) => Math.max(0, d.cash) + Math.max(0, d.investment)));
+  const hasInv = data.some((d) => d.investment > 0);
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex h-40 items-end gap-1.5">
+        {data.map((d) => {
+          const cashH = (Math.max(0, d.cash) / max) * 100;
+          const invH = (Math.max(0, d.investment) / max) * 100;
+          return (
+            <div key={d.month} className="group flex h-full flex-1 flex-col items-center justify-end gap-1">
+              <span className="text-[10px] tabular-nums text-muted">{compact(d.cash + d.investment)}</span>
+              <div className="flex w-full max-w-10 flex-col justify-end" style={{ height: "100%" }}>
+                {invH > 0 && <div className="w-full rounded-t bg-emerald-500/70" style={{ height: `${invH}%` }} />}
+                <div
+                  className={`w-full bg-neutral-800 dark:bg-neutral-300 ${invH > 0 ? "" : "rounded-t"}`}
+                  style={{ height: `${cashH}%` }}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex gap-1.5">
+        {data.map((d) => (
+          <div key={d.month} className="flex-1 text-center text-[10px] text-muted">
+            {formatMonthId(`${d.month}-01`).slice(0, 3)}
+          </div>
+        ))}
+      </div>
+      {hasInv && (
+        <div className="flex gap-4 text-xs text-muted">
+          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-neutral-800 dark:bg-neutral-300" />Kas & bank</span>
+          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-emerald-500/70" />Investasi</span>
+        </div>
+      )}
     </div>
   );
 }
