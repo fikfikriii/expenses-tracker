@@ -36,6 +36,13 @@
       "when": 1794500324278,
       "tag": "0004_usd_accounts",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794541832428,
+      "tag": "0005_recurring",
+      "breakpoints": true
     }
   ]
 }

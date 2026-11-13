@@ -71,6 +71,9 @@ Buka domain Vercel lu, login pakai `DASHBOARD_PASSWORD`.
 - **Akun**: tambah akun tanpa batas (tunai, bank, e-wallet, tabungan, kartu kredit), saldo awal, alias buat bot, akun default, arsip.
 - **Kategori**: tambah, ganti nama/ikon, arsip. Kategori baru langsung dipakai AI.
 
+- **Budget**: batas pengeluaran per bulan untuk tiap kategori. Progress muncul di Overview, dan bot ngasih peringatan pas udah 80% dan 100%.
+- **Rutin**: transaksi yang berulang tiap bulan (kost, langganan, cicilan, gaji), dicatat otomatis di tanggalnya.
+- **Analitik**: pemasukan vs pengeluaran per bulan, pengeluaran per kategori per bulan, dan per akun (3, 6, atau 12 bulan).
 - **Saldo**: catat saldo asli tiap akun (akhir bulan), lihat selisih tak tercatat dan riwayat cek saldo.
 
 ### Saldo dan selisih tak tercatat
@@ -79,7 +82,17 @@ Saldo akun = **cek saldo terakhir** + transaksi yang dicatat sesudahnya (kalau b
 
 Tiap cek saldo dibandingin sama perkiraan (cek sebelumnya + transaksi tercatat). Karena transfer antar akun saling nutup, total selisihnya = **bunga/cashback/pemasukan yang lupa dicatat** (plus) atau **pengeluaran yang lupa dicatat** (minus). Selisih ini nggak masuk grafik pengeluaran.
 
-Bot ngingetin update saldo tiap tanggal terakhir bulan jam 19.00 WIB (Vercel Cron, `vercel.json`).
+### Cron harian dan laporan otomatis
+
+Satu Vercel Cron (`vercel.json`, jam 19.00 WIB tiap hari) ngejalanin `/api/cron/daily`:
+
+- ambil kurs USD hari ini,
+- nyatet transaksi rutin yang jatuh tempo, terus bot ngabarin,
+- Minggu malam: **laporan mingguan** (total, 3 kategori terbesar, perbandingan sama minggu lalu, status budget),
+- tanggal 1: **laporan bulanan** bulan sebelumnya,
+- tanggal terakhir bulan: pengingat update saldo.
+
+Buat ngetes manual (pakai `CRON_SECRET` kalau diisi): `GET /api/cron/daily?force=weekly`, `force=monthly`, atau `force=month-end`.
 
 ### Akun USD
 

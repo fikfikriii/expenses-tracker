@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { BudgetBar } from "@/components/budget-bar";
 import { TxList } from "@/components/tx-list";
 import { accountTypeLabel } from "@/lib/labels";
 import { formatDateId, formatMonthId, formatRupiah, monthRange, todayJakarta } from "@/lib/dates";
@@ -8,6 +9,7 @@ import {
   listAllAccounts,
   loadBalanceBook,
   listAllCategories,
+  listBudgets,
   recentTransactions,
   summarize,
 } from "@/lib/ledger";
@@ -24,12 +26,13 @@ export default async function Overview({ searchParams }: { searchParams: Promise
   const month = /^\d{4}-\d{2}$/.test(monthParam ?? "") ? monthParam! : today.slice(0, 7);
   const { start, end } = monthRange(`${month}-01`);
 
-  const [summary, book, accounts, categories, recent] = await Promise.all([
+  const [summary, book, accounts, categories, recent, budgets] = await Promise.all([
     summarize(start, end),
     loadBalanceBook(),
     listAllAccounts(),
     listAllCategories(),
     recentTransactions(8),
+    listBudgets(),
   ]);
 
   const active = accounts.filter((a) => !a.archived);
@@ -44,6 +47,15 @@ export default async function Overview({ searchParams }: { searchParams: Promise
   const trend = netWorthTrend(book, month, today);
   const expenseCats = summary.byCategory.filter((c) => c.kind === "expense");
   const maxCat = Math.max(1, ...expenseCats.map((c) => c.total));
+  const budgetRows = budgets
+    .map((b) => {
+      const c = categories.find((x) => x.id === b.categoryId);
+      if (!c) return null;
+      const spent = expenseCats.find((e) => e.name === c.name)?.total ?? 0;
+      return { name: `${c.icon} ${c.name}`.trim(), spent, limit: b.monthlyLimit };
+    })
+    .filter((r): r is { name: string; spent: number; limit: number } => r !== null)
+    .sort((a, b) => b.spent / b.limit - a.spent / a.limit);
   const net = summary.income - summary.expense;
   const isCurrent = month === today.slice(0, 7);
 
@@ -89,6 +101,23 @@ export default async function Overview({ searchParams }: { searchParams: Promise
             {unrecorded === 0 ? "Rp0 ✓" : `${unrecorded < 0 ? "−" : "+"}${formatRupiah(Math.abs(unrecorded))}`}
           </div>
         </Link>
+      )}
+
+      {budgetRows.length > 0 && (
+        <section className="card flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <h2 className="font-medium">Budget</h2>
+            <Link className="text-xs text-muted hover:underline" href="/budgets">Atur</Link>
+          </div>
+          <ul className="flex flex-col gap-3">
+            {budgetRows.map((r) => (
+              <li key={r.name} className="flex flex-col gap-1">
+                <span className="text-sm">{r.name}</span>
+                <BudgetBar spent={r.spent} limit={r.limit} />
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
       <section className="grid gap-6 md:grid-cols-2">

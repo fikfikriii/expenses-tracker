@@ -151,6 +151,54 @@ export async function budgetStatus(categoryId: number, date: string) {
   return { limit: budget.monthlyLimit, spent: Number(row?.spent ?? 0) };
 }
 
+export type MonthlyRow = { month: string; type: "expense" | "income"; category: string; account: string; total: number };
+
+/** Income/expense totals (IDR) grouped by month, category and account. Transfers are left out. */
+export async function monthlyBreakdown(start: string, end: string): Promise<MonthlyRow[]> {
+  const rows = await db()
+    .select({
+      month: sql<string>`to_char(${transactions.occurredOn}, 'YYYY-MM')`,
+      type: transactions.type,
+      category: categories.name,
+      account: accounts.name,
+      total: sql<string>`sum(${amountIdr})`,
+    })
+    .from(transactions)
+    .leftJoin(categories, eq(transactions.categoryId, categories.id))
+    .innerJoin(accounts, eq(transactions.accountId, accounts.id))
+    .where(
+      and(
+        gte(transactions.occurredOn, start),
+        lte(transactions.occurredOn, end),
+        sql`${transactions.type} <> 'transfer'`,
+      ),
+    )
+    .groupBy(sql`to_char(${transactions.occurredOn}, 'YYYY-MM')`, transactions.type, categories.name, accounts.name);
+  return rows.map((r) => ({
+    month: r.month,
+    type: r.type as "expense" | "income",
+    category: r.category ?? "Tanpa kategori",
+    account: r.account,
+    total: Number(r.total),
+  }));
+}
+
+export async function listBudgets() {
+  return db().select().from(budgets);
+}
+
+/** Sets the monthly limit for a category; a limit of null or 0 removes the budget. */
+export async function setBudget(categoryId: number, limit: number | null) {
+  if (!limit || limit <= 0) {
+    await db().delete(budgets).where(eq(budgets.categoryId, categoryId));
+    return;
+  }
+  await db()
+    .insert(budgets)
+    .values({ categoryId, monthlyLimit: limit })
+    .onConflictDoUpdate({ target: budgets.categoryId, set: { monthlyLimit: limit } });
+}
+
 // ---------- Dashboard queries ----------
 
 export async function listAllAccounts() {

@@ -7,6 +7,8 @@ import { SESSION_COOKIE, isValidSession } from "@/lib/auth";
 import { extractAmount } from "@/lib/parse";
 import { schema } from "@/db";
 import { convert, parseFormAmount, type Currency } from "@/lib/money";
+import { createRecurring, deleteRecurring, updateRecurring } from "@/lib/recurring";
+import { todayJakarta } from "@/lib/dates";
 import { currentRate, deleteRate, saveRate } from "@/lib/fx";
 import {
   createAccount,
@@ -16,6 +18,7 @@ import {
   deleteTransaction,
   listAllAccounts,
   saveSnapshots,
+  setBudget,
   updateAccount,
   updateCategory,
   updateTransaction,
@@ -205,5 +208,47 @@ export async function removeFxRate(f: FormData) {
   await requireAuth();
   const rateOn = str(f, "rateOn");
   if (rateOn) await deleteRate(rateOn);
+  refresh();
+}
+
+export async function saveBudget(_prev: FormState, f: FormData): Promise<FormState> {
+  await requireAuth();
+  const categoryId = int(f, "categoryId");
+  if (!categoryId) return { error: "Kategori nggak valid." };
+  const raw = str(f, "limit");
+  const limit = raw ? moneyFrom(f, "limit", "IDR") : null;
+  if (raw && (!limit || limit <= 0)) return { error: "Nominal nggak kebaca." };
+  await setBudget(categoryId, limit);
+  refresh();
+  return { ok: true };
+}
+
+export async function saveRecurring(_prev: FormState, f: FormData): Promise<FormState> {
+  await requireAuth();
+  const rawType = str(f, "type");
+  if (rawType !== "expense" && rawType !== "income") return { error: "Tipe nggak valid." };
+  const type: "expense" | "income" = rawType;
+  const accountId = int(f, "accountId");
+  const categoryId = int(f, "categoryId");
+  if (!accountId) return { error: "Pilih akun." };
+  if (!categoryId) return { error: "Pilih kategori." };
+  const day = int(f, "dayOfMonth");
+  if (!day || day > 31) return { error: "Tanggal harus 1 sampai 31." };
+  const accs = await listAllAccounts();
+  const currency = accs.find((a) => a.id === accountId)?.currency ?? "IDR";
+  const amount = moneyFrom(f, "amount", currency);
+  if (!amount || amount <= 0) return { error: "Nominal nggak kebaca." };
+  const input = { type, amount, accountId, categoryId, note: str(f, "note"), dayOfMonth: day, active: f.get("active") === "on" };
+  const id = int(f, "id");
+  if (id) await updateRecurring(id, input);
+  else await createRecurring({ ...input, active: true }, todayJakarta());
+  refresh();
+  return { ok: true };
+}
+
+export async function removeRecurring(f: FormData) {
+  await requireAuth();
+  const id = int(f, "id");
+  if (id) await deleteRecurring(id);
   refresh();
 }

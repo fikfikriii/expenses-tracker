@@ -140,3 +140,22 @@ export type Category = typeof categories.$inferSelect;
 export type Transaction = typeof transactions.$inferSelect;
 export type BalanceSnapshot = typeof balanceSnapshots.$inferSelect;
 export type NewTransaction = typeof transactions.$inferInsert;
+
+// Transactions that repeat on a day of the month (rent, subscriptions, installments).
+// The daily cron creates them; `lastRunMonth` ("YYYY-MM") stops double creation.
+export const recurring = pgTable("recurring", {
+  id: serial("id").primaryKey(),
+  type: transactionType("type").notNull(),
+  // In the account's currency, like transactions.amount.
+  amount: bigint("amount", { mode: "number" }).notNull(),
+  accountId: integer("account_id")
+    .notNull()
+    .references(() => accounts.id, { onDelete: "cascade" }),
+  categoryId: integer("category_id").references(() => categories.id, { onDelete: "set null" }),
+  note: text("note").notNull().default(""),
+  // 1-31; months that are shorter use their last day.
+  dayOfMonth: integer("day_of_month").notNull(),
+  active: boolean("active").notNull().default(true),
+  lastRunMonth: text("last_run_month"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});

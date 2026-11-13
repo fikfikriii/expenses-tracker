@@ -6,6 +6,9 @@ import { usePathname } from "next/navigation";
 const LINKS = [
   { href: "/", label: "Overview" },
   { href: "/transactions", label: "Transaksi" },
+  { href: "/budgets", label: "Budget" },
+  { href: "/recurring", label: "Rutin" },
+  { href: "/analytics", label: "Analitik" },
   { href: "/balances", label: "Saldo" },
   { href: "/accounts", label: "Akun" },
   { href: "/categories", label: "Kategori" },
