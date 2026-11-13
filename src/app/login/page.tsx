@@ -9,14 +9,25 @@ export default function LoginPage() {
     <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center gap-6 p-6">
       <div>
         <h1 className="text-2xl font-semibold">Expenses Tracker</h1>
-        <p className="text-sm text-neutral-500">Masukin password dashboard.</p>
+        <p className="text-sm text-neutral-500">Login pakai username Telegram dan password yang lu buat di bot.</p>
       </div>
       <form action={action} className="flex flex-col gap-3">
         <input
-          type="password"
-          name="password"
+          type="text"
+          name="username"
           autoFocus
           required
+          autoComplete="username"
+          autoCapitalize="none"
+          spellCheck={false}
+          placeholder="Username Telegram (tanpa @)"
+          className="input"
+        />
+        <input
+          type="password"
+          name="password"
+          required
+          autoComplete="current-password"
           placeholder="Password"
           className="input"
         />

@@ -1,8 +1,10 @@
+import { requireUser } from "@/lib/session";
 import { CategoryForm } from "@/components/entity-forms";
 import { listAllCategories } from "@/lib/ledger";
 
 export default async function CategoriesPage() {
-  const categories = await listAllCategories();
+  const user = await requireUser();
+  const categories = await listAllCategories(user.id);
   const groups = [
     { kind: "expense" as const, title: "Kategori pengeluaran" },
     { kind: "income" as const, title: "Kategori pemasukan" },

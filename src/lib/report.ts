@@ -54,9 +54,9 @@ export function formatReport(opts: {
   return lines.join("\n");
 }
 
-async function budgetLines(monthIso: string): Promise<BudgetLine[]> {
+async function budgetLines(userId: number, monthIso: string): Promise<BudgetLine[]> {
   const { start, end } = monthRange(monthIso);
-  const [budgets, cats, month] = await Promise.all([listBudgets(), listAllCategories(), summarize(start, end)]);
+  const [budgets, cats, month] = await Promise.all([listBudgets(userId), listAllCategories(userId), summarize(userId, start, end)]);
   return budgets.flatMap((b) => {
     const c = cats.find((x) => x.id === b.categoryId);
     if (!c) return [];
@@ -66,12 +66,12 @@ async function budgetLines(monthIso: string): Promise<BudgetLine[]> {
 }
 
 /** Mon-Sun week ending on `sunday` (YYYY-MM-DD), compared with the week before. */
-export async function weeklyReport(sunday: string): Promise<string> {
+export async function weeklyReport(userId: number, sunday: string): Promise<string> {
   const start = addDays(sunday, -6);
   const [summary, previous, budgets] = await Promise.all([
-    summarize(start, sunday),
-    summarize(addDays(start, -7), addDays(start, -1)),
-    budgetLines(sunday),
+    summarize(userId, start, sunday),
+    summarize(userId, addDays(start, -7), addDays(start, -1)),
+    budgetLines(userId, sunday),
   ]);
   return formatReport({
     title: `📊 Laporan mingguan (${formatDateId(start)} - ${formatDateId(sunday)})`,
@@ -83,10 +83,14 @@ export async function weeklyReport(sunday: string): Promise<string> {
 }
 
 /** The whole month that contains `monthIso`, compared with the month before. */
-export async function monthlyReport(monthIso: string): Promise<string> {
+export async function monthlyReport(userId: number, monthIso: string): Promise<string> {
   const { start, end } = monthRange(monthIso);
   const prev = monthRange(addDays(start, -1));
-  const [summary, previous, budgets] = await Promise.all([summarize(start, end), summarize(prev.start, prev.end), budgetLines(monthIso)]);
+  const [summary, previous, budgets] = await Promise.all([
+    summarize(userId, start, end),
+    summarize(userId, prev.start, prev.end),
+    budgetLines(userId, monthIso),
+  ]);
   return formatReport({
     title: `🗓️ Laporan ${formatMonthId(monthIso)}`,
     summary,

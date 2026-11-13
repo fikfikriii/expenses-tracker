@@ -1,10 +1,16 @@
+import { requireUser } from "@/lib/session";
 import { RecurringForm } from "@/components/recurring-form";
 import { formatMoney } from "@/lib/money";
 import { listAllAccounts, listAllCategories } from "@/lib/ledger";
 import { listRecurring } from "@/lib/recurring";
 
 export default async function RecurringPage() {
-  const [rules, accounts, categories] = await Promise.all([listRecurring(), listAllAccounts(), listAllCategories()]);
+  const user = await requireUser();
+  const [rules, accounts, categories] = await Promise.all([
+    listRecurring(user.id),
+    listAllAccounts(user.id),
+    listAllCategories(user.id),
+  ]);
   const accs = accounts.filter((a) => !a.archived);
   const cats = categories.filter((c) => !c.archived);
   const cur = (id: number) => accounts.find((a) => a.id === id)?.currency ?? "IDR";

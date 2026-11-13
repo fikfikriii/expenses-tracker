@@ -18,7 +18,12 @@ import {
 import { formatDateId, formatMonthId, formatRupiah, monthRange, todayJakarta } from "@/lib/dates";
 import { formatMoney, type Currency } from "@/lib/money";
 import { currentRate } from "@/lib/fx";
-import type { Transaction } from "@/db/schema";
+import type { Transaction, User } from "@/db/schema";
+import { accessPolicy, ensureUser, isAllowed, setPassword } from "@/lib/users";
+import { PASSWORD_MIN } from "@/lib/password";
+
+// `user` is set by the access middleware before any handler runs.
+type BotContext = Context & { user: User };
 import { isSaldoMessage, parseSaldo } from "@/lib/saldo";
 import { isInvestment } from "@/lib/balances";
 
@@ -45,6 +50,7 @@ const HELP = [
   "/bulan_ini – ringkasan bulan ini",
   "/hapus – hapus transaksi terakhir",
   "/saldo – lihat saldo semua akun",
+  "/password – bikin atau ganti password dashboard",
   "/bantuan – pesan ini",
 ].join("\n");
 
@@ -52,17 +58,16 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-function allowedUserIds(): Set<number> {
-  return new Set(
-    (process.env.ALLOWED_TELEGRAM_USER_IDS ?? "")
-      .split(",")
-      .map((s) => Number(s.trim()))
-      .filter((n) => Number.isFinite(n) && n > 0),
-  );
+// Telegram shows this as a reply box; the next message is read as the password, never as an expense.
+const PASSWORD_PROMPT = `🔑 Bikin password dashboard (minimal ${PASSWORD_MIN} karakter). Ketik password-nya di sini, balas pesan ini.`;
+
+function dashboardUrl(): string | null {
+  const host = process.env.VERCEL_PROJECT_PRODUCTION_URL;
+  return host ? `https://${host}` : null;
 }
 
-async function describe(tx: Transaction): Promise<string> {
-  const [accounts, categories] = await Promise.all([listAccounts(), listCategories()]);
+async function describe(userId: number, tx: Transaction): Promise<string> {
+  const [accounts, categories] = await Promise.all([listAccounts(userId), listCategories(userId)]);
   const acc = (id: number | null) => accounts.find((a) => a.id === id)?.name ?? "?";
   const cur = (id: number | null): Currency => accounts.find((a) => a.id === id)?.currency ?? "IDR";
   const cat = categories.find((c) => c.id === tx.categoryId);
@@ -91,13 +96,13 @@ async function describe(tx: Transaction): Promise<string> {
     .join("\n");
 }
 
-async function budgetWarning(tx: Transaction): Promise<string | null> {
+async function budgetWarning(userId: number, tx: Transaction): Promise<string | null> {
   if (tx.type !== "expense" || !tx.categoryId) return null;
-  const status = await budgetStatus(tx.categoryId, tx.occurredOn);
+  const status = await budgetStatus(userId, tx.categoryId, tx.occurredOn);
   if (!status || status.limit <= 0) return null;
   const pct = Math.round((status.spent / status.limit) * 100);
   if (pct < 80) return null;
-  const cats = await listCategories();
+  const cats = await listCategories(userId);
   const name = cats.find((c) => c.id === tx.categoryId)?.name ?? "";
   const head = pct >= 100 ? "🚨 Budget" : "⚠️ Budget";
   return `${head} ${escapeHtml(name)} udah ${pct}% (${formatRupiah(status.spent)} dari ${formatRupiah(status.limit)})`;
@@ -109,8 +114,8 @@ function txKeyboard(tx: Transaction) {
   return kb.text("↩️ Batal", `u:${tx.id}`);
 }
 
-async function summaryText(title: string, start: string, end: string): Promise<string> {
-  const s = await summarize(start, end);
+async function summaryText(userId: number, title: string, start: string, end: string): Promise<string> {
+  const s = await summarize(userId, start, end);
   if (s.expense === 0 && s.income === 0) return `<b>${title}</b>\nBelum ada transaksi.`;
   const lines = [
     `<b>${title}</b>`,
@@ -130,9 +135,9 @@ function signed(n: number): string {
   return `${n < 0 ? "−" : "+"}${formatRupiah(Math.abs(n))}`;
 }
 
-async function balancesText(): Promise<string> {
+async function balancesText(userId: number): Promise<string> {
   const today = todayJakarta();
-  const book = await loadBalanceBook();
+  const book = await loadBalanceBook(userId);
   const active = book.accounts.filter((a) => !a.archived);
   const line = (a: (typeof active)[number]) => {
     const last = book.lastSnapshot(a.id, today);
@@ -157,22 +162,23 @@ async function balancesText(): Promise<string> {
   return lines.join("\n");
 }
 
-async function handleSaldo(text: string): Promise<string> {
-  const accounts = await listAccounts();
+async function handleSaldo(userId: number, text: string): Promise<string> {
+  const accounts = await listAccounts(userId);
   const today = todayJakarta();
   const parsed = parseSaldo(text, accounts, today);
-  if (!parsed) return balancesText();
+  if (!parsed) return balancesText(userId);
   if (parsed.items.length === 0) {
     return `Nominal saldonya nggak kebaca buat: ${parsed.missing.map((a) => escapeHtml(a.name)).join(", ")}. Contoh: <code>saldo bca 5,2jt</code>`;
   }
 
-  const before = await loadBalanceBook();
+  const before = await loadBalanceBook(userId);
   await saveSnapshots(
+    userId,
     parsed.date,
     parsed.items.map((i) => ({ accountId: i.account.id, balance: i.balance })),
   );
-  const after = await loadBalanceBook();
-  const all = await listAllAccounts();
+  const after = await loadBalanceBook(userId);
+  const all = await listAllAccounts(userId);
 
   const lines = [`🏦 <b>Saldo dicatat</b> (${formatDateId(parsed.date)})`];
   for (const { account, balance } of parsed.items) {
@@ -220,33 +226,55 @@ async function handleSaldo(text: string): Promise<string> {
 }
 
 export function createBot(token: string) {
-  const bot = new Bot<Context>(token);
+  const bot = new Bot<BotContext>(token);
 
   // Skip updates Telegram resends after a slow response.
   bot.use(async (ctx, next) => {
     if (await claimTelegramUpdate(ctx.update.update_id)) await next();
   });
 
-  // Private bot: only the owner's Telegram account may use it.
+  // Only people on the allowlist may use the bot; each gets their own user record and data.
   bot.use(async (ctx, next) => {
-    const id = ctx.from?.id;
-    const allowed = allowedUserIds();
-    if (id && allowed.has(id)) return next();
-    if (ctx.chat?.type === "private" && id) {
+    const from = ctx.from;
+    if (from && isAllowed(from.id)) {
+      const name = [from.first_name, from.last_name].filter(Boolean).join(" ");
+      ctx.user = await ensureUser(from.id, name, from.username);
+      return next();
+    }
+    if (ctx.chat?.type === "private" && from) {
+      const { open, ids } = accessPolicy();
       await ctx.reply(
-        allowed.size === 0
-          ? `Bot belum dikunci. ID Telegram lu: <code>${id}</code>\nIsi env <code>ALLOWED_TELEGRAM_USER_IDS</code> di Vercel dengan angka ini, lalu redeploy.`
-          : "Maaf, bot ini private.",
+        !open && ids.length === 0
+          ? `Bot belum dikunci. ID Telegram lu: <code>${from.id}</code>\nIsi env <code>ALLOWED_TELEGRAM_USER_IDS</code> di Vercel dengan angka ini (atau <code>*</code> buat buka ke semua orang), lalu redeploy.`
+          : `Maaf, bot ini private. ID Telegram lu: <code>${from.id}</code>. Kasih ID ini ke pemilik bot buat minta akses.`,
         { parse_mode: "HTML" },
       );
     }
   });
 
-  bot.command(["start", "bantuan", "help"], (ctx) => ctx.reply(HELP, { parse_mode: "HTML" }));
+  // Asks for the dashboard password. Needs a Telegram username, since that is the login name.
+  async function askPassword(ctx: BotContext) {
+    if (!ctx.user.username) {
+      return ctx.reply(
+        "Buat login dashboard lu butuh username Telegram. Buka Telegram, Settings, Username, isi, lalu kirim /password lagi.",
+      );
+    }
+    return ctx.reply(PASSWORD_PROMPT, {
+      reply_markup: { force_reply: true, input_field_placeholder: "Password baru" },
+    });
+  }
+
+  bot.command(["start", "bantuan", "help"], async (ctx) => {
+    await ctx.reply(HELP, { parse_mode: "HTML" });
+    // First time here: ask for the dashboard password right away.
+    if (!ctx.user.passwordHash && ctx.message?.text?.startsWith("/start")) await askPassword(ctx);
+  });
+
+  bot.command("password", askPassword);
 
   bot.command("hari_ini", async (ctx) => {
     const today = todayJakarta();
-    await ctx.reply(await summaryText(`Hari ini (${formatDateId(today)})`, today, today), {
+    await ctx.reply(await summaryText(ctx.user.id, `Hari ini (${formatDateId(today)})`, today, today), {
       parse_mode: "HTML",
     });
   });
@@ -254,28 +282,53 @@ export function createBot(token: string) {
   bot.command("bulan_ini", async (ctx) => {
     const today = todayJakarta();
     const { start, end } = monthRange(today);
-    await ctx.reply(await summaryText(formatMonthId(today), start, end), { parse_mode: "HTML" });
+    await ctx.reply(await summaryText(ctx.user.id, formatMonthId(today), start, end), { parse_mode: "HTML" });
   });
 
   bot.command("saldo", async (ctx) => {
-    await ctx.reply(await handleSaldo(ctx.message?.text ?? "/saldo"), { parse_mode: "HTML" });
+    await ctx.reply(await handleSaldo(ctx.user.id, ctx.message?.text ?? "/saldo"), { parse_mode: "HTML" });
   });
 
   bot.command("hapus", async (ctx) => {
-    const tx = await lastTransaction();
+    const tx = await lastTransaction(ctx.user.id);
     if (!tx) return ctx.reply("Belum ada transaksi.");
-    await deleteTransaction(tx.id);
-    await ctx.reply(`🗑️ Dihapus:\n${await describe(tx)}`, { parse_mode: "HTML" });
+    await deleteTransaction(ctx.user.id, tx.id);
+    await ctx.reply(`🗑️ Dihapus:\n${await describe(ctx.user.id, tx)}`, { parse_mode: "HTML" });
   });
 
   bot.on("message:text", async (ctx) => {
     const text = ctx.message.text;
-    if (text.startsWith("/")) return ctx.reply("Command nggak dikenal. Coba /bantuan");
-    if (isSaldoMessage(text)) {
-      return ctx.reply(await handleSaldo(text), { parse_mode: "HTML" });
+
+    // A reply to the password prompt is the password. Delete it from the chat right away.
+    const replied = ctx.message.reply_to_message;
+    if (replied?.from?.id === ctx.me.id && replied.text === PASSWORD_PROMPT) {
+      const result = await setPassword(ctx.user.id, text);
+      await ctx.api.deleteMessage(ctx.chat.id, ctx.message.message_id).catch(() => {});
+      if (!result.ok) {
+        return ctx.reply(`${result.error} Kirim /password buat coba lagi.`);
+      }
+      await ctx.api.deleteMessage(ctx.chat.id, replied.message_id).catch(() => {});
+      const url = dashboardUrl();
+      return ctx.reply(
+        [
+          "✅ Password dashboard disimpan. Pesan passwordnya udah gua hapus dari chat.",
+          "",
+          `Login${url ? ` di ${url}` : " di dashboard"} pakai:`,
+          `• Username: <code>${escapeHtml(ctx.user.username ?? "")}</code>`,
+          "• Password: yang barusan lu bikin",
+          "",
+          "Lupa atau mau ganti? Kirim /password lagi.",
+        ].join("\n"),
+        { parse_mode: "HTML" },
+      );
     }
 
-    const [accounts, categories] = await Promise.all([listAccounts(), listCategories()]);
+    if (text.startsWith("/")) return ctx.reply("Command nggak dikenal. Coba /bantuan");
+    if (isSaldoMessage(text)) {
+      return ctx.reply(await handleSaldo(ctx.user.id, text), { parse_mode: "HTML" });
+    }
+
+    const [accounts, categories] = await Promise.all([listAccounts(ctx.user.id), listCategories(ctx.user.id)]);
     const usdIdr = accounts.some((a) => a.currency === "USD") || /\$|usd|dollar|dolar/i.test(text)
       ? await currentRate()
       : null;
@@ -293,17 +346,17 @@ export function createBot(token: string) {
       );
     }
 
-    const tx = await saveDraft(result.draft, text);
-    const warning = await budgetWarning(tx);
-    const body = [await describe(tx), warning].filter(Boolean).join("\n\n");
+    const tx = await saveDraft(ctx.user.id, result.draft, text);
+    const warning = await budgetWarning(ctx.user.id, tx);
+    const body = [await describe(ctx.user.id, tx), warning].filter(Boolean).join("\n\n");
     await ctx.reply(body, { parse_mode: "HTML", reply_markup: txKeyboard(tx) });
   });
 
   // c:<txId> -> show category choices
   bot.callbackQuery(/^c:(\d+)$/, async (ctx) => {
-    const tx = await getTransaction(Number(ctx.match[1]));
+    const tx = await getTransaction(ctx.user.id, Number(ctx.match[1]));
     if (!tx || tx.type === "transfer") return ctx.answerCallbackQuery("Transaksi nggak ada");
-    const cats = (await listCategories()).filter((c) => c.kind === tx.type);
+    const cats = (await listCategories(ctx.user.id)).filter((c) => c.kind === tx.type);
     const kb = new InlineKeyboard();
     cats.forEach((c, i) => {
       kb.text(`${c.icon} ${c.name}`.trim(), `s:${tx.id}:${c.id}`);
@@ -315,19 +368,19 @@ export function createBot(token: string) {
 
   // s:<txId>:<categoryId> -> set category
   bot.callbackQuery(/^s:(\d+):(\d+)$/, async (ctx) => {
-    const tx = await setTransactionCategory(Number(ctx.match[1]), Number(ctx.match[2]));
+    const tx = await setTransactionCategory(ctx.user.id, Number(ctx.match[1]), Number(ctx.match[2]));
     if (!tx) return ctx.answerCallbackQuery("Transaksi nggak ada");
-    const warning = await budgetWarning(tx);
-    const body = [await describe(tx), warning].filter(Boolean).join("\n\n");
+    const warning = await budgetWarning(ctx.user.id, tx);
+    const body = [await describe(ctx.user.id, tx), warning].filter(Boolean).join("\n\n");
     await ctx.editMessageText(body, { parse_mode: "HTML", reply_markup: txKeyboard(tx) });
     await ctx.answerCallbackQuery("Kategori diganti");
   });
 
   // u:<txId> -> undo
   bot.callbackQuery(/^u:(\d+)$/, async (ctx) => {
-    const tx = await deleteTransaction(Number(ctx.match[1]));
+    const tx = await deleteTransaction(ctx.user.id, Number(ctx.match[1]));
     if (!tx) return ctx.answerCallbackQuery("Udah dihapus");
-    await ctx.editMessageText(`<s>${await describe(tx)}</s>\n\n↩️ Dibatalin`, { parse_mode: "HTML" });
+    await ctx.editMessageText(`<s>${await describe(ctx.user.id, tx)}</s>\n\n↩️ Dibatalin`, { parse_mode: "HTML" });
     await ctx.answerCallbackQuery("Dibatalin");
   });
 

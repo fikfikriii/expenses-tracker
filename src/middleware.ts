@@ -1,8 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { SESSION_COOKIE, isValidSession } from "@/lib/auth";
+import { SESSION_COOKIE, readSessionToken } from "@/lib/auth";
 
+// Only checks that the cookie is one we signed. Whether that user still exists, is still
+// allowed, and still has the same password is re-checked in lib/session.ts (needs the database).
 export async function middleware(req: NextRequest) {
-  if (await isValidSession(req.cookies.get(SESSION_COOKIE)?.value)) return NextResponse.next();
+  if (await readSessionToken(req.cookies.get(SESSION_COOKIE)?.value)) return NextResponse.next();
   const url = req.nextUrl.clone();
   url.pathname = "/login";
   url.search = "";

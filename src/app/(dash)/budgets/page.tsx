@@ -1,12 +1,18 @@
+import { requireUser } from "@/lib/session";
 import { BudgetBar } from "@/components/budget-bar";
 import { BudgetForm } from "@/components/budget-form";
 import { formatMonthId, monthRange, todayJakarta } from "@/lib/dates";
 import { listAllCategories, listBudgets, summarize } from "@/lib/ledger";
 
 export default async function BudgetsPage() {
+  const user = await requireUser();
   const month = todayJakarta().slice(0, 7);
   const { start, end } = monthRange(`${month}-01`);
-  const [cats, budgets, summary] = await Promise.all([listAllCategories(), listBudgets(), summarize(start, end)]);
+  const [cats, budgets, summary] = await Promise.all([
+    listAllCategories(user.id),
+    listBudgets(user.id),
+    summarize(user.id, start, end),
+  ]);
   const limitOf = new Map(budgets.map((b) => [b.categoryId, b.monthlyLimit]));
   const spentOf = new Map(summary.byCategory.filter((c) => c.kind === "expense").map((c) => [c.name, c.total]));
   const rows = cats.filter((c) => c.kind === "expense" && (!c.archived || limitOf.has(c.id)));

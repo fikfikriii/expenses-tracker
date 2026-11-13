@@ -1,3 +1,4 @@
+import { requireUser } from "@/lib/session";
 import Link from "next/link";
 import { DataTable, Legend, MonthBars, VIZ, VIZ_OTHER, compact } from "@/components/charts";
 import { formatMonthId, formatRupiah, monthRange, todayJakarta } from "@/lib/dates";
@@ -11,11 +12,12 @@ function shiftMonth(month: string, delta: number): string {
 }
 
 export default async function AnalyticsPage({ searchParams }: { searchParams: Promise<{ range?: string }> }) {
+  const user = await requireUser();
   const { range: rangeParam } = await searchParams;
   const n = RANGES.includes(Number(rangeParam)) ? Number(rangeParam) : 6;
   const thisMonth = todayJakarta().slice(0, 7);
   const months = Array.from({ length: n }, (_, i) => shiftMonth(thisMonth, i - (n - 1)));
-  const rows = await monthlyBreakdown(`${months[0]}-01`, monthRange(`${thisMonth}-01`).end);
+  const rows = await monthlyBreakdown(user.id, `${months[0]}-01`, monthRange(`${thisMonth}-01`).end);
 
   const sum = (f: (r: (typeof rows)[number]) => boolean) => rows.filter(f).reduce((s, r) => s + r.total, 0);
   const flow = months.map((m) => [sum((r) => r.month === m && r.type === "income"), sum((r) => r.month === m && r.type === "expense")]);

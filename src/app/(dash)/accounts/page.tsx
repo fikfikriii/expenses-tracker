@@ -1,10 +1,12 @@
+import { requireUser } from "@/lib/session";
 import { AccountForm } from "@/components/entity-forms";
 import { accountTypeLabel } from "@/lib/labels";
 import { formatMoney } from "@/lib/money";
 import { accountBalances, listAllAccounts } from "@/lib/ledger";
 
 export default async function AccountsPage() {
-  const [accounts, balances] = await Promise.all([listAllAccounts(), accountBalances()]);
+  const user = await requireUser();
+  const [accounts, balances] = await Promise.all([listAllAccounts(user.id), accountBalances(user.id)]);
   return (
     <>
       <h1 className="text-xl font-semibold">Akun</h1>

@@ -1,3 +1,4 @@
+import { requireUser } from "@/lib/session";
 import Link from "next/link";
 import { BudgetBar } from "@/components/budget-bar";
 import { TxList } from "@/components/tx-list";
@@ -21,18 +22,19 @@ function shiftMonth(month: string, delta: number): string {
 }
 
 export default async function Overview({ searchParams }: { searchParams: Promise<{ month?: string }> }) {
+  const user = await requireUser();
   const { month: monthParam } = await searchParams;
   const today = todayJakarta();
   const month = /^\d{4}-\d{2}$/.test(monthParam ?? "") ? monthParam! : today.slice(0, 7);
   const { start, end } = monthRange(`${month}-01`);
 
   const [summary, book, accounts, categories, recent, budgets] = await Promise.all([
-    summarize(start, end),
-    loadBalanceBook(),
-    listAllAccounts(),
-    listAllCategories(),
-    recentTransactions(8),
-    listBudgets(),
+    summarize(user.id, start, end),
+    loadBalanceBook(user.id),
+    listAllAccounts(user.id),
+    listAllCategories(user.id),
+    recentTransactions(user.id, 8),
+    listBudgets(user.id),
   ]);
 
   const active = accounts.filter((a) => !a.archived);

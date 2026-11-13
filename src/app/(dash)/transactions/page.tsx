@@ -1,3 +1,4 @@
+import { requireUser } from "@/lib/session";
 import Link from "next/link";
 import { TxForm } from "@/components/tx-form";
 import { TxList } from "@/components/tx-list";
@@ -24,14 +25,15 @@ function parseFilters(p: Params): TxFilters {
 }
 
 export default async function TransactionsPage({ searchParams }: { searchParams: Promise<Params> }) {
+  const user = await requireUser();
   const params = await searchParams;
   const filters = parseFilters(params);
   const page = Math.max(1, Number(params.page) || 1);
 
   const [{ rows, total }, accounts, categories] = await Promise.all([
-    listTransactions(filters, PAGE_SIZE, (page - 1) * PAGE_SIZE),
-    listAllAccounts(),
-    listAllCategories(),
+    listTransactions(user.id, filters, PAGE_SIZE, (page - 1) * PAGE_SIZE),
+    listAllAccounts(user.id),
+    listAllCategories(user.id),
   ]);
   const activeAccounts = accounts.filter((a) => !a.archived);
   const activeCategories = categories.filter((c) => !c.archived);

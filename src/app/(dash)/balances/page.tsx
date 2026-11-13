@@ -1,8 +1,10 @@
+import { requireUser } from "@/lib/session";
 import { BalanceForm } from "@/components/balance-form";
 import { formatDateId, formatMonthId, formatRupiah, todayJakarta } from "@/lib/dates";
 import { isInvestment } from "@/lib/balances";
 import { accountTypeLabel } from "@/lib/labels";
 import { listAllAccounts, listSnapshots, loadBalanceBook } from "@/lib/ledger";
+import { isOwner } from "@/lib/users";
 import { removeFxRate, removeSnapshot } from "../actions";
 import { formatMoney } from "@/lib/money";
 import { listRates } from "@/lib/fx";
@@ -11,9 +13,15 @@ import { FxRateForm } from "@/components/fx-form";
 const signed = (n: number) => `${n < 0 ? "−" : "+"}${formatRupiah(Math.abs(n))}`;
 
 export default async function BalancesPage() {
+  const user = await requireUser();
   const today = todayJakarta();
-  const [book, accounts, snapshots] = await Promise.all([loadBalanceBook(), listAllAccounts(), listSnapshots()]);
+  const [book, accounts, snapshots] = await Promise.all([
+    loadBalanceBook(user.id),
+    listAllAccounts(user.id),
+    listSnapshots(user.id),
+  ]);
   const rates = await listRates();
+  const canEditRates = user.telegramId !== null && isOwner(user.telegramId);
   const active = accounts.filter((a) => !a.archived);
   const name = new Map(accounts.map((a) => [a.id, a.name]));
   const cur = (id: number) => accounts.find((a) => a.id === id)?.currency ?? "IDR";
@@ -91,10 +99,13 @@ export default async function BalancesPage() {
         <section className="card flex flex-col gap-3">
           <h2 className="font-medium">Kurs USD → IDR</h2>
           <p className="text-sm text-muted">
-            Diambil otomatis tiap hari (kurs referensi ECB). Isi manual kalau mau pakai kurs lain; kurs manual
-            nggak bakal ditimpa. Dipakai buat ngitung total kekayaan dan laporan dalam rupiah.
+            Diambil otomatis tiap hari (kurs referensi ECB) dan berlaku buat semua user.
+            {canEditRates
+              ? " Isi manual kalau mau pakai kurs lain; kurs manual nggak bakal ditimpa."
+              : " Cuma owner yang bisa ngubah kurs."}{" "}
+            Dipakai buat ngitung total kekayaan dan laporan dalam rupiah.
           </p>
-          <FxRateForm date={today} />
+          {canEditRates && <FxRateForm date={today} />}
           {rates.length > 0 && (
             <ul className="divide-y divide-border">
               {rates.slice(0, 10).map((r) => (
@@ -102,10 +113,12 @@ export default async function BalancesPage() {
                   <span className="w-20 shrink-0 text-xs text-muted">{formatDateId(r.rateOn)}</span>
                   <span className="flex-1 tabular-nums">{formatRupiah(r.usdIdr)}</span>
                   <span className="text-xs text-muted">{r.source === "manual" ? "manual" : "otomatis"}</span>
-                  <form action={removeFxRate}>
-                    <input type="hidden" name="rateOn" value={r.rateOn} />
-                    <button className="text-xs text-muted hover:text-red-600" title="Hapus">✕</button>
-                  </form>
+                  {canEditRates && (
+                    <form action={removeFxRate}>
+                      <input type="hidden" name="rateOn" value={r.rateOn} />
+                      <button className="text-xs text-muted hover:text-red-600" title="Hapus">✕</button>
+                    </form>
+                  )}
                 </li>
               ))}
             </ul>

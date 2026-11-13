@@ -1,3 +1,4 @@
+import { requireUser } from "@/lib/session";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ConfirmButton } from "@/components/confirm-button";
@@ -7,12 +8,13 @@ import { getTransaction, listAllAccounts, listAllCategories } from "@/lib/ledger
 import { removeTransaction } from "../../actions";
 
 export default async function EditTransaction({ params }: { params: Promise<{ id: string }> }) {
+  const user = await requireUser();
   const { id } = await params;
   if (!/^\d+$/.test(id)) notFound();
   const [tx, accounts, categories] = await Promise.all([
-    getTransaction(Number(id)),
-    listAllAccounts(),
-    listAllCategories(),
+    getTransaction(user.id, Number(id)),
+    listAllAccounts(user.id),
+    listAllCategories(user.id),
   ]);
   if (!tx) notFound();
 

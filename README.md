@@ -40,9 +40,9 @@ Bikin key gratis di https://aistudio.google.com/apikey. Ini `AI_API_KEY`.
    - `DATABASE_URL`: dari Neon
    - `TELEGRAM_BOT_TOKEN`: dari @BotFather
    - `TELEGRAM_WEBHOOK_SECRET`: string acak panjang, **cuma huruf, angka, `_` atau `-`** (misal hasil `openssl rand -hex 32` atau password generator tanpa simbol)
-   - `ALLOWED_TELEGRAM_USER_IDS`: ID Telegram lu dari @userinfobot
+   - `ALLOWED_TELEGRAM_USER_IDS`: ID Telegram yang boleh pakai bot (dari @userinfobot), pisah koma. ID pertama = owner. `*` = semua orang boleh
    - `AI_API_KEY`: dari Google AI Studio
-   - `DASHBOARD_PASSWORD`: password buat login dashboard
+   - `SESSION_SECRET`: string acak minimal 16 karakter buat nandatanganin cookie login (misal hasil `openssl rand -hex 32`). Pengganti `DASHBOARD_PASSWORD`, yang udah nggak dipakai
 3. Klik **Deploy**.
 
 ### 4. Sambungin bot ke Vercel (webhook)
@@ -60,11 +60,26 @@ Cek status kapan aja di `https://api.telegram.org/bot<TOKEN>/getWebhookInfo`.
 Alternatif dari terminal: isi `.env`, lalu `npm run webhook:set -- https://<domain-vercel-lu>`.
 
 ### 5. Coba
-Chat bot lu: `15000 makan bubur`.
+Chat bot lu: `/start`. Bot minta lu bikin password dashboard (balas pesan itu). Terus coba `15000 makan bubur`.
+
+## Multi-user
+
+- Siapa pun yang ID Telegram-nya ada di `ALLOWED_TELEGRAM_USER_IDS` bisa pakai bot dan dashboard. Tambah orang = tambah ID di env Vercel, terus redeploy. Isi `*` kalau mau dibuka buat semua orang (hati-hati, panggilan AI pakai API key lu).
+- Tiap user punya akun, kategori, transaksi, budget, saldo, dan transaksi rutin sendiri, terpisah dari user lain. User baru otomatis dapat akun (Cash, BCA, GoPay) dan kategori standar waktu pertama chat. Laporan mingguan/bulanan dan pengingat akhir bulan dikirim ke chat masing-masing.
+- Orang yang belum terdaftar dibales ID Telegram-nya, jadi bisa dikirim ke lu buat minta akses.
+- Kurs USD dipakai bareng semua user, jadi cuma **owner** (ID pertama di env) yang bisa ngubah kurs manual.
+- Ngehapus ID dari env nutup akses bot dan dashboard; datanya tetap ada di database.
+
+### Upgrade dari versi satu-user
+Migrasi `0006_multi_user` (jalan otomatis waktu deploy) memindahin semua data lama ke satu user: akun Telegram owner (ID-nya ditulis di file migrasinya). Pastiin ID itu juga ada di `ALLOWED_TELEGRAM_USER_IDS`. Setelah deploy, kirim `/start` dari akun owner, bikin password dashboard, lalu login. Backup Neon dulu kalau mau aman.
 
 ## Dashboard
 
-Buka domain Vercel lu, login pakai `DASHBOARD_PASSWORD`.
+Buka domain Vercel lu, login pakai **username Telegram** (tanpa `@`) dan **password yang lu bikin di bot**.
+
+- Bikin atau ganti password: kirim `/password` ke bot, terus balas pesan yang muncul. Pesan passwordnya otomatis dihapus dari chat, dan semua sesi login lama langsung keluar.
+- Lu wajib punya username Telegram (Settings, Username). Kalau username diganti, login pakai username yang baru.
+- 5 kali salah password mengunci login 15 menit.
 
 - **Overview**: pemasukan, pengeluaran, selisih, dan total saldo per bulan; pengeluaran per kategori; saldo tiap akun; transaksi terakhir.
 - **Transaksi**: filter (tanggal, tipe, kategori, akun, catatan), tambah manual, klik buat edit atau hapus.
@@ -124,12 +139,15 @@ Ubah skema di `src/db/schema.ts`, lalu `npm run db:generate` buat bikin file mig
 ```
 src/app/api/telegram/route.ts  webhook Telegram
 src/app/(dash)/                halaman dashboard + server actions
-src/middleware.ts              login dashboard
+src/middleware.ts              cek cookie login dashboard
+src/lib/users.ts               akses (allowlist), user, password, login
+src/lib/auth.ts                cookie sesi bertanda tangan
+src/lib/password.ts            hash password (scrypt)
 src/bot/bot.ts                 handler chat, command, dan tombol
 src/lib/parse.ts               baca nominal dan tanggal
 src/lib/interpret.ts           gabungin parser, akun, AI/kata kunci jadi satu transaksi
 src/lib/ai.ts                  panggilan AI (OpenAI-compatible, default Gemini)
 src/lib/ledger.ts              query database
-src/db/schema.ts               skema: accounts, categories, transactions, budgets
+src/db/schema.ts               skema: users, accounts, categories, transactions, budgets, dll
 drizzle/                       file migrasi SQL
 ```

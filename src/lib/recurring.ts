@@ -1,8 +1,8 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, count, eq, inArray, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { monthRange } from "./dates";
 
-const { recurring, transactions } = schema;
+const { recurring, transactions, accounts, categories } = schema;
 
 export type Recurring = typeof recurring.$inferSelect;
 
@@ -28,32 +28,51 @@ export type RecurringInput = {
   active: boolean;
 };
 
-export async function listRecurring() {
-  return db().select().from(recurring).orderBy(asc(recurring.dayOfMonth), asc(recurring.id));
+export async function listRecurring(userId: number) {
+  return db().select().from(recurring).where(eq(recurring.userId, userId)).orderBy(asc(recurring.dayOfMonth), asc(recurring.id));
 }
 
-export async function createRecurring(input: RecurringInput, today: string) {
+async function assertOwnsRule(userId: number, input: RecurringInput) {
+  const [a] = await db()
+    .select({ n: count() })
+    .from(accounts)
+    .where(and(eq(accounts.userId, userId), inArray(accounts.id, [input.accountId])));
+  const [c] = input.categoryId
+    ? await db()
+        .select({ n: count() })
+        .from(categories)
+        .where(and(eq(categories.userId, userId), inArray(categories.id, [input.categoryId])))
+    : [{ n: 1 }];
+  if (Number(a.n) !== 1 || Number(c.n) !== 1) throw new Error("not_found");
+}
+
+export async function createRecurring(userId: number, input: RecurringInput, today: string) {
+  await assertOwnsRule(userId, input);
   const month = today.slice(0, 7);
   // A rule added after its day has passed starts next month instead of back-filling.
   const passed = today > dueDateIn(month, input.dayOfMonth);
   await db()
     .insert(recurring)
-    .values({ ...input, lastRunMonth: passed ? month : null });
+    .values({ ...input, userId, lastRunMonth: passed ? month : null });
 }
 
-export async function updateRecurring(id: number, input: RecurringInput) {
-  await db().update(recurring).set(input).where(eq(recurring.id, id));
+export async function updateRecurring(userId: number, id: number, input: RecurringInput) {
+  await assertOwnsRule(userId, input);
+  await db()
+    .update(recurring)
+    .set(input)
+    .where(and(eq(recurring.id, id), eq(recurring.userId, userId)));
 }
 
-export async function deleteRecurring(id: number) {
-  await db().delete(recurring).where(eq(recurring.id, id));
+export async function deleteRecurring(userId: number, id: number) {
+  await db().delete(recurring).where(and(eq(recurring.id, id), eq(recurring.userId, userId)));
 }
 
-/** Creates this month's transactions for every due rule. Returns what was created. */
-export async function runRecurring(today: string) {
+/** Creates this month's transactions for every due rule of one user. Returns what was created. */
+export async function runRecurring(userId: number, today: string) {
   const month = today.slice(0, 7);
   const created: { rule: Recurring; occurredOn: string }[] = [];
-  for (const rule of await listRecurring()) {
+  for (const rule of await listRecurring(userId)) {
     if (!isDue(rule, today)) continue;
     // Claim the month first so two overlapping runs can't both create it.
     const claimed = await db()
@@ -65,6 +84,7 @@ export async function runRecurring(today: string) {
     const occurredOn = dueDateIn(month, rule.dayOfMonth);
     try {
       await db().insert(transactions).values({
+        userId,
         type: rule.type,
         amount: rule.amount,
         occurredOn,
