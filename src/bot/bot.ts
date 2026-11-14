@@ -19,7 +19,14 @@ import { formatDateId, formatMonthId, formatRupiah, monthRange, todayJakarta } f
 import { formatMoney, type Currency } from "@/lib/money";
 import { currentRate } from "@/lib/fx";
 import type { Transaction, User } from "@/db/schema";
-import { accessPolicy, ensureUser, isAllowed, setPassword } from "@/lib/users";
+import {
+  accessPolicy,
+  claimPasswordPrompt,
+  ensureUser,
+  isAllowed,
+  setPassword,
+  startPasswordPrompt,
+} from "@/lib/users";
 import { PASSWORD_MIN } from "@/lib/password";
 
 // `user` is set by the access middleware before any handler runs.
@@ -58,7 +65,9 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-// Telegram shows this as a reply box; the next message is read as the password, never as an expense.
+// Telegram shows this as a reply box. The next message is read as the password, never as an expense:
+// either it replies to this prompt, or it arrives while the prompt is still open in the database
+// (so it works even if the user types without replying).
 const PASSWORD_PROMPT = `🔑 Bikin password dashboard (minimal ${PASSWORD_MIN} karakter). Ketik password-nya di sini, balas pesan ini.`;
 
 function dashboardUrl(): string | null {
@@ -259,6 +268,11 @@ export function createBot(token: string) {
         "Buat login dashboard lu butuh username Telegram. Buka Telegram, Settings, Username, isi, lalu kirim /password lagi.",
       );
     }
+    await startPasswordPrompt(ctx.user.id);
+    return sendPasswordPrompt(ctx);
+  }
+
+  function sendPasswordPrompt(ctx: BotContext) {
     return ctx.reply(PASSWORD_PROMPT, {
       reply_markup: { force_reply: true, input_field_placeholder: "Password baru" },
     });
@@ -299,15 +313,22 @@ export function createBot(token: string) {
   bot.on("message:text", async (ctx) => {
     const text = ctx.message.text;
 
-    // A reply to the password prompt is the password. Delete it from the chat right away.
+    // While a password prompt is open, the message is the password, whether or not it is a reply.
+    // Delete it from the chat right away.
     const replied = ctx.message.reply_to_message;
-    if (replied?.from?.id === ctx.me.id && replied.text === PASSWORD_PROMPT) {
+    const repliedToPrompt = replied?.from?.id === ctx.me.id && replied.text === PASSWORD_PROMPT;
+    const promptOpen = (ctx.user.passwordPromptUntil?.getTime() ?? 0) > Date.now();
+    const armed = promptOpen ? await claimPasswordPrompt(ctx.user.id) : false;
+    if (repliedToPrompt || armed) {
       const result = await setPassword(ctx.user.id, text);
       await ctx.api.deleteMessage(ctx.chat.id, ctx.message.message_id).catch(() => {});
       if (!result.ok) {
-        return ctx.reply(`${result.error} Kirim /password buat coba lagi.`);
+        // Keep listening so the next message is the retry, not an expense.
+        await startPasswordPrompt(ctx.user.id);
+        await ctx.reply(result.error);
+        return sendPasswordPrompt(ctx);
       }
-      await ctx.api.deleteMessage(ctx.chat.id, replied.message_id).catch(() => {});
+      if (repliedToPrompt) await ctx.api.deleteMessage(ctx.chat.id, replied.message_id).catch(() => {});
       const url = dashboardUrl();
       return ctx.reply(
         [

@@ -17,9 +17,22 @@ vi.mock("@/lib/users", async (importOriginal) => ({
       id: prev?.id ?? store.users.size + 1, telegramId, name,
       username: username ? username.toLowerCase() : null,
       passwordHash: prev?.passwordHash ?? null,
+      passwordPromptUntil: prev?.passwordPromptUntil ?? null,
     };
     store.users.set(telegramId, user);
     return user;
+  },
+  startPasswordPrompt: async (userId: number) => {
+    for (const u of store.users.values()) if (u.id === userId) u.passwordPromptUntil = new Date(Date.now() + 5 * 60_000);
+  },
+  claimPasswordPrompt: async (userId: number) => {
+    for (const u of store.users.values()) {
+      if (u.id !== userId) continue;
+      const open = (u.passwordPromptUntil?.getTime() ?? 0) > Date.now();
+      u.passwordPromptUntil = null;
+      return open;
+    }
+    return false;
   },
   setPassword: async (userId: number, password: string) => {
     if (password.length < 8) return { ok: false, error: "Password minimal 8 karakter." };
@@ -196,6 +209,55 @@ describe("bot", () => {
       expect(store.passwords).toHaveLength(0);
       expect(sent.some((s) => s.method === "deleteMessage")).toBe(true);
       expect(sent.find((s) => s.method === "sendMessage")!.payload.text).toContain("minimal 8");
+    });
+
+    it("reads the next plain message as the password, even without replying", async () => {
+      const { bot, sent } = makeBot();
+      await bot.handleUpdate(textUpdate(42, "/password", { username: "fikri" }) as any);
+      sent.length = 0;
+      await bot.handleUpdate(textUpdate(42, "rahasia12345", { username: "fikri" }) as any); // not a reply
+      expect(store.passwords).toEqual([{ userId: 1, password: "rahasia12345" }]);
+      expect(store.txs).toHaveLength(0);
+      expect(sent.some((s) => s.method === "deleteMessage")).toBe(true);
+      expect(sent.find((s) => s.method === "sendMessage")!.payload.text).toContain("Password dashboard disimpan");
+    });
+
+    it("only takes one message per prompt", async () => {
+      const { bot } = makeBot();
+      await bot.handleUpdate(textUpdate(42, "/password", { username: "fikri" }) as any);
+      await bot.handleUpdate(textUpdate(42, "rahasia12345", { username: "fikri" }) as any);
+      await bot.handleUpdate(textUpdate(42, "15000 makan bubur", { username: "fikri" }) as any);
+      expect(store.passwords).toHaveLength(1);
+      expect(store.txs).toHaveLength(1);
+    });
+
+    it("does not treat a plain message as a password when no prompt is open", async () => {
+      const { bot } = makeBot();
+      await bot.handleUpdate(textUpdate(42, "halo", { username: "fikri" }) as any); // creates the user
+      await bot.handleUpdate(textUpdate(42, "rahasia12345", { username: "fikri" }) as any);
+      expect(store.passwords).toHaveLength(0);
+    });
+
+    it("ignores an expired prompt", async () => {
+      const { bot } = makeBot();
+      await bot.handleUpdate(textUpdate(42, "/password", { username: "fikri" }) as any);
+      store.users.get(42).passwordPromptUntil = new Date(Date.now() - 1000);
+      await bot.handleUpdate(textUpdate(42, "rahasia12345", { username: "fikri" }) as any);
+      expect(store.passwords).toHaveLength(0);
+    });
+
+    it("keeps listening after a too-short password so the retry is not an expense", async () => {
+      const { bot, sent } = makeBot();
+      await bot.handleUpdate(textUpdate(42, "/password", { username: "fikri" }) as any);
+      sent.length = 0;
+      await bot.handleUpdate(textUpdate(42, "pendek", { username: "fikri" }) as any);
+      expect(store.passwords).toHaveLength(0);
+      const msgs = sent.filter((s) => s.method === "sendMessage");
+      expect(msgs[0].payload.text).toContain("minimal 8");
+      expect(msgs[1].payload.reply_markup.force_reply).toBe(true);
+      await bot.handleUpdate(textUpdate(42, "rahasia12345", { username: "fikri" }) as any);
+      expect(store.passwords).toEqual([{ userId: 1, password: "rahasia12345" }]);
+      expect(store.txs).toHaveLength(0);
     });
 
     it("needs a Telegram username to log in", async () => {

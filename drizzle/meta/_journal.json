@@ -50,6 +50,13 @@
       "when": 1794576678049,
       "tag": "0006_multi_user",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1794633495270,
+      "tag": "0007_password_prompt",
+      "breakpoints": true
     }
   ]
 }

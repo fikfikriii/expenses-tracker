@@ -77,7 +77,7 @@ Migrasi `0006_multi_user` (jalan otomatis waktu deploy) memindahin semua data la
 
 Buka domain Vercel lu, login pakai **username Telegram** (tanpa `@`) dan **password yang lu bikin di bot**.
 
-- Bikin atau ganti password: kirim `/password` ke bot, terus balas pesan yang muncul. Pesan passwordnya otomatis dihapus dari chat, dan semua sesi login lama langsung keluar.
+- Bikin atau ganti password: kirim `/password` ke bot, terus ketik passwordnya (boleh di-reply boleh nggak; berlaku 5 menit). Pesan passwordnya otomatis dihapus dari chat dan nggak pernah dicatat sebagai transaksi. Semua sesi login lama langsung keluar.
 - Lu wajib punya username Telegram (Settings, Username). Kalau username diganti, login pakai username yang baru.
 - 5 kali salah password mengunci login 15 menit.
 

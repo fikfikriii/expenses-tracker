@@ -47,6 +47,9 @@ export const users = pgTable("users", {
   name: text("name").notNull().default(""),
   // scrypt hash ("scrypt$salt$hash"); null until the user sets a password in the bot.
   passwordHash: text("password_hash"),
+  // While in the future, the user's next plain message is read as their new password
+  // (set by /password and /start, cleared when used). Keeps a password out of the expense parser.
+  passwordPromptUntil: timestamp("password_prompt_until", { withTimezone: true }),
   failedLogins: integer("failed_logins").notNull().default(0),
   lockedUntil: timestamp("locked_until", { withTimezone: true }),
   // Bumped when the password changes; invalidates every existing dashboard session.

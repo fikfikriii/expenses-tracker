@@ -1,4 +1,4 @@
-import { and, eq, isNull, ne, sql } from "drizzle-orm";
+import { and, eq, gt, isNull, ne, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { DEFAULT_ACCOUNTS, DEFAULT_CATEGORIES } from "./defaults";
 import { hashPassword, passwordProblem, verifyPassword } from "./password";
@@ -124,6 +124,29 @@ export async function getUserById(id: number): Promise<User | undefined> {
 
 // ---------- Passwords and login ----------
 
+export const PASSWORD_PROMPT_MINUTES = 5;
+
+/** The user's next plain message (within a few minutes) will be read as their new password. */
+export async function startPasswordPrompt(userId: number): Promise<void> {
+  await db()
+    .update(users)
+    .set({ passwordPromptUntil: sql`now() + make_interval(mins => ${PASSWORD_PROMPT_MINUTES})` })
+    .where(eq(users.id, userId));
+}
+
+/**
+ * True if a password prompt was open, and closes it. Atomic, so two messages arriving together
+ * can't both be taken as a password, and an expired prompt never matches.
+ */
+export async function claimPasswordPrompt(userId: number): Promise<boolean> {
+  const rows = await db()
+    .update(users)
+    .set({ passwordPromptUntil: null })
+    .where(and(eq(users.id, userId), gt(users.passwordPromptUntil, sql`now()`)))
+    .returning({ id: users.id });
+  return rows.length > 0;
+}
+
 /** Sets (or changes) the dashboard password and signs out every existing session. */
 export async function setPassword(
   userId: number,
@@ -138,6 +161,7 @@ export async function setPassword(
       sessionVersion: sql`${users.sessionVersion} + 1`,
       failedLogins: 0,
       lockedUntil: null,
+      passwordPromptUntil: null,
     })
     .where(eq(users.id, userId));
   return { ok: true };
