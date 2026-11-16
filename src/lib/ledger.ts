@@ -1,7 +1,7 @@
 import { and, asc, count, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Draft } from "./interpret";
-import { monthRange, todayJakarta } from "./dates";
+import { periodKey, periodRange, todayJakarta } from "./dates";
 import { BalanceBook } from "./balances";
 import { ensureTodayRate, listRates } from "./fx";
 
@@ -164,14 +164,14 @@ export async function summarize(userId: number, start: string, end: string): Pro
   return summary;
 }
 
-/** Spending vs. limit for one category in the month that contains `date`. */
-export async function budgetStatus(userId: number, categoryId: number, date: string) {
+/** Spending vs. limit for one category in the budget period that contains `date`. */
+export async function budgetStatus(userId: number, categoryId: number, date: string, startDay = 1) {
   const [budget] = await db()
     .select()
     .from(budgets)
     .where(and(eq(budgets.categoryId, categoryId), eq(budgets.userId, userId)));
   if (!budget) return null;
-  const { start, end } = monthRange(date);
+  const { start, end } = periodRange(periodKey(date, startDay), startDay);
   const [row] = await db()
     .select({ spent: sql<string>`coalesce(sum(${amountIdr}), 0)` })
     .from(transactions)
@@ -190,10 +190,17 @@ export async function budgetStatus(userId: number, categoryId: number, date: str
 export type MonthlyRow = { month: string; type: "expense" | "income"; category: string; account: string; total: number };
 
 /** Income/expense totals (IDR) grouped by month, category and account. Transfers are left out. */
-export async function monthlyBreakdown(userId: number, start: string, end: string): Promise<MonthlyRow[]> {
+export async function monthlyBreakdown(userId: number, start: string, end: string, startDay = 1): Promise<MonthlyRow[]> {
+  // Period key: a date on/after the start day belongs to the next calendar month's period.
+  // The day is inlined (an integer, clamped) so the SELECT and GROUP BY expressions are identical.
+  const day = sql.raw(String(Math.min(28, Math.max(1, Math.trunc(startDay)))));
+  const key =
+    startDay > 1
+      ? sql<string>`to_char(case when extract(day from ${transactions.occurredOn}) >= ${day} then ${transactions.occurredOn} + interval '1 month' else ${transactions.occurredOn} end, 'YYYY-MM')`
+      : sql<string>`to_char(${transactions.occurredOn}, 'YYYY-MM')`;
   const rows = await db()
     .select({
-      month: sql<string>`to_char(${transactions.occurredOn}, 'YYYY-MM')`,
+      month: key,
       type: transactions.type,
       category: categories.name,
       account: accounts.name,
@@ -210,7 +217,7 @@ export async function monthlyBreakdown(userId: number, start: string, end: strin
         sql`${transactions.type} <> 'transfer'`,
       ),
     )
-    .groupBy(sql`to_char(${transactions.occurredOn}, 'YYYY-MM')`, transactions.type, categories.name, accounts.name);
+    .groupBy(key, transactions.type, categories.name, accounts.name);
   return rows.map((r) => ({
     month: r.month,
     type: r.type as "expense" | "income",

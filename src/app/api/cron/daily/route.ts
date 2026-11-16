@@ -1,5 +1,5 @@
 import { Api } from "grammy";
-import { addDays, formatDateId, formatMonthId, formatRupiah, todayJakarta } from "@/lib/dates";
+import { addDays, formatDateId, formatPeriodId, formatRupiah, periodKey, todayJakarta } from "@/lib/dates";
 import { ensureTodayRate } from "@/lib/fx";
 import { runRecurring } from "@/lib/recurring";
 import { listActiveUsers } from "@/lib/users";
@@ -40,6 +40,7 @@ export async function GET(req: Request) {
   // Everything below is per user: their own rules, reports and reminder, sent to their own chat.
   for (const user of await listActiveUsers()) {
     const messages: string[] = [];
+    const startDay = user.monthStartDay;
 
     try {
       const created = await runRecurring(user.id, today);
@@ -59,18 +60,19 @@ export async function GET(req: Request) {
     }
 
     try {
-      if (weekday(today) === 0 || force === "weekly") messages.push(await weeklyReport(user.id, today));
-      if (today.slice(8, 10) === "01" || force === "monthly") {
-        messages.push(await monthlyReport(user.id, addDays(today, -1).slice(0, 7) + "-01"));
+      if (weekday(today) === 0 || force === "weekly") messages.push(await weeklyReport(user.id, today, startDay));
+      // A new budget period starts on the user's start day (the 1st by default); report the one that just ended.
+      if (Number(today.slice(8, 10)) === startDay || force === "monthly") {
+        messages.push(await monthlyReport(user.id, periodKey(addDays(today, -1), startDay), startDay));
       }
     } catch (e) {
       console.error("report", user.id, e);
     }
 
-    if (addDays(today, 1).slice(8, 10) === "01" || force === "month-end") {
+    if (Number(addDays(today, 1).slice(8, 10)) === startDay || force === "month-end") {
       messages.push(
         [
-          `👀 Akhir ${formatMonthId(today)}, waktunya update saldo!`,
+          `👀 Akhir ${formatPeriodId(periodKey(today, startDay), startDay)}, waktunya update saldo!`,
           "",
           "Cek saldo tiap akun (termasuk investasi), terus kirim kayak gini:",
           "<code>saldo bca 5,2jt mandiri 3,1jt seabank 800rb</code>",

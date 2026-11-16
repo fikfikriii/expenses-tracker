@@ -118,3 +118,45 @@ export function DataTable({ head, rows }: { head: string[]; rows: (string | numb
     </details>
   );
 }
+
+export type TrendPoint = { month: string; cash: number; investment: number };
+
+export function NetWorthBars({ data }: { data: TrendPoint[] }) {
+  const max = Math.max(1, ...data.map((d) => Math.max(0, d.cash) + Math.max(0, d.investment)));
+  const hasInv = data.some((d) => d.investment > 0);
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex h-40 items-end gap-1.5">
+        {data.map((d) => {
+          const cashH = (Math.max(0, d.cash) / max) * 100;
+          const invH = (Math.max(0, d.investment) / max) * 100;
+          return (
+            <div key={d.month} className="group flex h-full flex-1 flex-col items-center justify-end gap-1">
+              <span className="text-[10px] tabular-nums text-muted">{compact(d.cash + d.investment)}</span>
+              <div className="flex w-full max-w-10 flex-col justify-end" style={{ height: "100%" }}>
+                {invH > 0 && <div className="w-full rounded-t bg-emerald-500/70" style={{ height: `${invH}%` }} />}
+                <div
+                  className={`w-full bg-neutral-800 dark:bg-neutral-300 ${invH > 0 ? "" : "rounded-t"}`}
+                  style={{ height: `${cashH}%` }}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex gap-1.5">
+        {data.map((d) => (
+          <div key={d.month} className="flex-1 text-center text-[10px] text-muted">
+            {formatMonthId(`${d.month}-01`).slice(0, 3)}
+          </div>
+        ))}
+      </div>
+      {hasInv && (
+        <div className="flex gap-4 text-xs text-muted">
+          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-neutral-800 dark:bg-neutral-300" />Kas & bank</span>
+          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-emerald-500/70" />Investasi</span>
+        </div>
+      )}
+    </div>
+  );
+}

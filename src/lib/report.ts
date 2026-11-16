@@ -1,4 +1,4 @@
-import { addDays, formatDateId, formatMonthId, formatRupiah, monthRange } from "./dates";
+import { addDays, formatDateId, formatPeriodId, formatRupiah, periodKey, periodRange } from "./dates";
 import { listAllCategories, listBudgets, summarize, type Summary } from "./ledger";
 
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -54,8 +54,8 @@ export function formatReport(opts: {
   return lines.join("\n");
 }
 
-async function budgetLines(userId: number, monthIso: string): Promise<BudgetLine[]> {
-  const { start, end } = monthRange(monthIso);
+async function budgetLines(userId: number, key: string, startDay: number): Promise<BudgetLine[]> {
+  const { start, end } = periodRange(key, startDay);
   const [budgets, cats, month] = await Promise.all([listBudgets(userId), listAllCategories(userId), summarize(userId, start, end)]);
   return budgets.flatMap((b) => {
     const c = cats.find((x) => x.id === b.categoryId);
@@ -66,12 +66,12 @@ async function budgetLines(userId: number, monthIso: string): Promise<BudgetLine
 }
 
 /** Mon-Sun week ending on `sunday` (YYYY-MM-DD), compared with the week before. */
-export async function weeklyReport(userId: number, sunday: string): Promise<string> {
+export async function weeklyReport(userId: number, sunday: string, startDay = 1): Promise<string> {
   const start = addDays(sunday, -6);
   const [summary, previous, budgets] = await Promise.all([
     summarize(userId, start, sunday),
     summarize(userId, addDays(start, -7), addDays(start, -1)),
-    budgetLines(userId, sunday),
+    budgetLines(userId, periodKey(sunday, startDay), startDay),
   ]);
   return formatReport({
     title: `📊 Laporan mingguan (${formatDateId(start)} - ${formatDateId(sunday)})`,
@@ -82,20 +82,20 @@ export async function weeklyReport(userId: number, sunday: string): Promise<stri
   });
 }
 
-/** The whole month that contains `monthIso`, compared with the month before. */
-export async function monthlyReport(userId: number, monthIso: string): Promise<string> {
-  const { start, end } = monthRange(monthIso);
-  const prev = monthRange(addDays(start, -1));
+/** The whole budget period `key` ("YYYY-MM"), compared with the period before. */
+export async function monthlyReport(userId: number, key: string, startDay = 1): Promise<string> {
+  const { start, end } = periodRange(key, startDay);
+  const prev = periodRange(periodKey(addDays(start, -1), startDay), startDay);
   const [summary, previous, budgets] = await Promise.all([
     summarize(userId, start, end),
     summarize(userId, prev.start, prev.end),
-    budgetLines(userId, monthIso),
+    budgetLines(userId, key, startDay),
   ]);
   return formatReport({
-    title: `🗓️ Laporan ${formatMonthId(monthIso)}`,
+    title: `🗓️ Laporan ${formatPeriodId(key, startDay)}`,
     summary,
     previous,
-    previousLabel: formatMonthId(prev.start),
+    previousLabel: formatPeriodId(periodKey(prev.end, startDay), startDay),
     budgets,
   });
 }

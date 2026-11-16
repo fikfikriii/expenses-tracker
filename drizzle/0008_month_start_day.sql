@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "month_start_day" integer DEFAULT 1 NOT NULL;

@@ -211,3 +211,10 @@ export async function listActiveUsers(): Promise<User[]> {
   const all = await db().select().from(users);
   return all.filter((u) => u.telegramId !== null && isAllowed(u.telegramId));
 }
+
+/** Day (1-28) that this user's budget month starts on; 1 means the calendar month. */
+export async function setMonthStartDay(userId: number, day: number) {
+  if (!Number.isInteger(day) || day < 1 || day > 28) return false;
+  await db().update(users).set({ monthStartDay: day }).where(eq(users.id, userId));
+  return true;
+}

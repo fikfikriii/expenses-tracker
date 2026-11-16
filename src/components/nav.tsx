@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 
 const LINKS = [
@@ -13,6 +13,18 @@ const LINKS = [
   { href: "/accounts", label: "Akun" },
   { href: "/categories", label: "Kategori" },
 ];
+
+function Pending() {
+  const { pending } = useLinkStatus();
+  return (
+    <span
+      aria-hidden
+      className={`ml-1.5 inline-block size-3 animate-spin rounded-full border-2 border-current border-t-transparent align-[-1px] ${
+        pending ? "" : "hidden"
+      }`}
+    />
+  );
+}
 
 export function Nav() {
   const path = usePathname();
@@ -29,6 +41,7 @@ export function Nav() {
             }`}
           >
             {l.label}
+            <Pending />
           </Link>
         );
       })}

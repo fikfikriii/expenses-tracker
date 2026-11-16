@@ -1,6 +1,6 @@
 import { requireUser } from "@/lib/session";
 import { BalanceForm } from "@/components/balance-form";
-import { formatDateId, formatMonthId, formatRupiah, todayJakarta } from "@/lib/dates";
+import { formatDateId, formatPeriodId, formatRupiah, periodKey, todayJakarta } from "@/lib/dates";
 import { isInvestment } from "@/lib/balances";
 import { accountTypeLabel } from "@/lib/labels";
 import { listAllAccounts, listSnapshots, loadBalanceBook } from "@/lib/ledger";
@@ -27,10 +27,10 @@ export default async function BalancesPage() {
   const cur = (id: number) => accounts.find((a) => a.id === id)?.currency ?? "IDR";
   const hasUsd = accounts.some((a) => a.currency === "USD");
 
-  // Unrecorded money per month, newest first.
+  // Unrecorded money per budget period (see /gajian), newest first.
   const byMonth = new Map<string, { diff: number; parts: { accountId: number; diff: number }[] }>();
   for (const u of book.unrecorded()) {
-    const m = u.takenOn.slice(0, 7);
+    const m = periodKey(u.takenOn, user.monthStartDay);
     const e = byMonth.get(m) ?? { diff: 0, parts: [] };
     e.diff += u.diff;
     e.parts.push({ accountId: u.accountId, diff: u.diff });
@@ -77,7 +77,7 @@ export default async function BalancesPage() {
             {months.map(([m, e]) => (
               <li key={m} className="flex flex-col gap-1 py-2">
                 <div className="flex justify-between text-sm font-medium">
-                  <span>{formatMonthId(`${m}-01`)}</span>
+                  <span>{formatPeriodId(m, user.monthStartDay)}</span>
                   <span className={`tabular-nums ${e.diff < 0 ? "text-red-600" : e.diff > 0 ? "text-green-600" : ""}`}>
                     {e.diff === 0 ? "Rp0 ✓" : signed(e.diff)}
                   </span>

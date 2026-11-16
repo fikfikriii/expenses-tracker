@@ -3,8 +3,9 @@ import Link from "next/link";
 import { BudgetBar } from "@/components/budget-bar";
 import { TxList } from "@/components/tx-list";
 import { accountTypeLabel } from "@/lib/labels";
-import { formatDateId, formatMonthId, formatRupiah, monthRange, todayJakarta } from "@/lib/dates";
-import { isInvestment } from "@/lib/balances";
+import { formatDateId, formatPeriodId, formatRupiah, periodKey, periodRange, shiftMonth, todayJakarta } from "@/lib/dates";
+import { isInvestment, netWorthTrend } from "@/lib/balances";
+import { NetWorthBars } from "@/components/charts";
 import { formatMoney, type Currency } from "@/lib/money";
 import {
   listAllAccounts,
@@ -15,18 +16,13 @@ import {
   summarize,
 } from "@/lib/ledger";
 
-function shiftMonth(month: string, delta: number): string {
-  const [y, m] = month.split("-").map(Number);
-  const d = new Date(Date.UTC(y, m - 1 + delta, 1));
-  return d.toISOString().slice(0, 7);
-}
-
 export default async function Overview({ searchParams }: { searchParams: Promise<{ month?: string }> }) {
   const user = await requireUser();
   const { month: monthParam } = await searchParams;
   const today = todayJakarta();
-  const month = /^\d{4}-\d{2}$/.test(monthParam ?? "") ? monthParam! : today.slice(0, 7);
-  const { start, end } = monthRange(`${month}-01`);
+  const day = user.monthStartDay;
+  const month = /^\d{4}-\d{2}$/.test(monthParam ?? "") ? monthParam! : periodKey(today, day);
+  const { start, end } = periodRange(month, day);
 
   const [summary, book, accounts, categories, recent, budgets] = await Promise.all([
     summarize(user.id, start, end),
@@ -46,7 +42,7 @@ export default async function Overview({ searchParams }: { searchParams: Promise
   const investAccounts = active.filter(isInvestment);
   const unrecordedParts = book.unrecorded().filter((u) => u.takenOn >= start && u.takenOn <= end);
   const unrecorded = unrecordedParts.reduce((s, u) => s + u.diff, 0);
-  const trend = netWorthTrend(book, month, today);
+  const trend = netWorthTrend(book, month, today, 12, day);
   const expenseCats = summary.byCategory.filter((c) => c.kind === "expense");
   const maxCat = Math.max(1, ...expenseCats.map((c) => c.total));
   const budgetRows = budgets
@@ -59,12 +55,12 @@ export default async function Overview({ searchParams }: { searchParams: Promise
     .filter((r): r is { name: string; spent: number; limit: number } => r !== null)
     .sort((a, b) => b.spent / b.limit - a.spent / a.limit);
   const net = summary.income - summary.expense;
-  const isCurrent = month === today.slice(0, 7);
+  const isCurrent = month === periodKey(today, day);
 
   return (
     <>
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">{formatMonthId(`${month}-01`)}</h1>
+        <h1 className="text-xl font-semibold">{formatPeriodId(month, day)}</h1>
         <div className="flex gap-1">
           <Link className="btn" href={`/?month=${shiftMonth(month, -1)}`}>←</Link>
           {!isCurrent && <Link className="btn" href="/">Bulan ini</Link>}
@@ -248,76 +244,6 @@ function AccountGroup({ title, accounts, book, date, showCapital }: {
           );
         })}
       </ul>
-    </div>
-  );
-}
-
-type TrendPoint = { month: string; cash: number; investment: number };
-
-/** Month-end net worth for up to 12 months ending at `month`, starting from the first data. */
-function netWorthTrend(book: Book, month: string, today: string): TrendPoint[] {
-  const dates = [
-    ...book.txs.map((t) => t.occurredOn),
-    ...book.accounts.flatMap((a) => book.snapshots(a.id).map((s) => s.takenOn)),
-  ].sort();
-  if (dates.length === 0) return [];
-  const first = dates[0].slice(0, 7);
-  const out: TrendPoint[] = [];
-  for (let i = 11; i >= 0; i--) {
-    const m = shiftMonth(month, -i);
-    if (m < first || m > today.slice(0, 7)) continue;
-    const { end } = monthRange(`${m}-01`);
-    const t = book.totals(end < today ? end : today);
-    out.push({ month: m, cash: t.cash, investment: t.investment });
-  }
-  return out;
-}
-
-function compact(n: number): string {
-  const abs = Math.abs(n);
-  const sign = n < 0 ? "−" : "";
-  if (abs >= 1e9) return `${sign}${(abs / 1e9).toFixed(1).replace(".0", "")}M`;
-  if (abs >= 1e6) return `${sign}${(abs / 1e6).toFixed(1).replace(".0", "")}jt`;
-  if (abs >= 1e3) return `${sign}${Math.round(abs / 1e3)}rb`;
-  return `${sign}${abs}`;
-}
-
-function NetWorthBars({ data }: { data: TrendPoint[] }) {
-  const max = Math.max(1, ...data.map((d) => Math.max(0, d.cash) + Math.max(0, d.investment)));
-  const hasInv = data.some((d) => d.investment > 0);
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="flex h-40 items-end gap-1.5">
-        {data.map((d) => {
-          const cashH = (Math.max(0, d.cash) / max) * 100;
-          const invH = (Math.max(0, d.investment) / max) * 100;
-          return (
-            <div key={d.month} className="group flex h-full flex-1 flex-col items-center justify-end gap-1">
-              <span className="text-[10px] tabular-nums text-muted">{compact(d.cash + d.investment)}</span>
-              <div className="flex w-full max-w-10 flex-col justify-end" style={{ height: "100%" }}>
-                {invH > 0 && <div className="w-full rounded-t bg-emerald-500/70" style={{ height: `${invH}%` }} />}
-                <div
-                  className={`w-full bg-neutral-800 dark:bg-neutral-300 ${invH > 0 ? "" : "rounded-t"}`}
-                  style={{ height: `${cashH}%` }}
-                />
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      <div className="flex gap-1.5">
-        {data.map((d) => (
-          <div key={d.month} className="flex-1 text-center text-[10px] text-muted">
-            {formatMonthId(`${d.month}-01`).slice(0, 3)}
-          </div>
-        ))}
-      </div>
-      {hasInv && (
-        <div className="flex gap-4 text-xs text-muted">
-          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-neutral-800 dark:bg-neutral-300" />Kas & bank</span>
-          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-emerald-500/70" />Investasi</span>
-        </div>
-      )}
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import { periodKey, periodRange, shiftMonth } from "@/lib/dates";
 // Account balances come from the latest month-end check ("snapshot") plus the
 // transactions logged after it. Unlogged transfers between accounts therefore
 // never make a balance drift for more than one month.
@@ -165,3 +166,25 @@ export class BalanceBook {
     return { cash, investment, netWorth: cash + investment };
   }
 }
+
+type TrendPoint = { month: string; cash: number; investment: number };
+
+/** Month-end net worth for up to `count` months ending at `month`, starting from the first data. */
+export function netWorthTrend(book: BalanceBook, month: string, today: string, count: number, startDay = 1): TrendPoint[] {
+  const dates = [
+    ...book.txs.map((t) => t.occurredOn),
+    ...book.accounts.flatMap((a) => book.snapshots(a.id).map((s) => s.takenOn)),
+  ].sort();
+  if (dates.length === 0) return [];
+  const first = periodKey(dates[0], startDay);
+  const out: TrendPoint[] = [];
+  for (let i = count - 1; i >= 0; i--) {
+    const m = shiftMonth(month, -i);
+    if (m < first || m > periodKey(today, startDay)) continue;
+    const { end } = periodRange(m, startDay);
+    const t = book.totals(end < today ? end : today);
+    out.push({ month: m, cash: t.cash, investment: t.investment });
+  }
+  return out;
+}
+

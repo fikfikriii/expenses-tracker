@@ -1,13 +1,14 @@
 import { requireUser } from "@/lib/session";
 import { BudgetBar } from "@/components/budget-bar";
 import { BudgetForm } from "@/components/budget-form";
-import { formatMonthId, monthRange, todayJakarta } from "@/lib/dates";
+import { formatPeriodId, periodKey, periodRange, todayJakarta } from "@/lib/dates";
 import { listAllCategories, listBudgets, summarize } from "@/lib/ledger";
 
 export default async function BudgetsPage() {
   const user = await requireUser();
-  const month = todayJakarta().slice(0, 7);
-  const { start, end } = monthRange(`${month}-01`);
+  const day = user.monthStartDay;
+  const month = periodKey(todayJakarta(), day);
+  const { start, end } = periodRange(month, day);
   const [cats, budgets, summary] = await Promise.all([
     listAllCategories(user.id),
     listBudgets(user.id),
@@ -24,7 +25,7 @@ export default async function BudgetsPage() {
       <h1 className="text-xl font-semibold">Budget</h1>
       <p className="-mt-4 text-sm text-muted">
         Batas pengeluaran per kategori, berlaku tiap bulan. Kosongin kolomnya buat hapus budget. Bot ngasih
-        peringatan pas udah 80% dan 100%. Progress di bawah buat {formatMonthId(`${month}-01`)}.
+        peringatan pas udah 80% dan 100%. Progress di bawah buat {formatPeriodId(month, day)}.
       </p>
       {totalLimit > 0 && (
         <section className="card flex flex-col gap-2">

@@ -15,7 +15,7 @@ import {
   setTransactionCategory,
   summarize,
 } from "@/lib/ledger";
-import { formatDateId, formatMonthId, formatRupiah, monthRange, todayJakarta } from "@/lib/dates";
+import { formatDateId, formatPeriodId, formatRupiah, periodKey, periodRange, todayJakarta } from "@/lib/dates";
 import { formatMoney, type Currency } from "@/lib/money";
 import { currentRate } from "@/lib/fx";
 import type { Transaction, User } from "@/db/schema";
@@ -24,6 +24,7 @@ import {
   claimPasswordPrompt,
   ensureUser,
   isAllowed,
+  setMonthStartDay,
   setPassword,
   startPasswordPrompt,
 } from "@/lib/users";
@@ -54,7 +55,7 @@ const HELP = [
   "",
   "<b>Command</b>",
   "/hari_ini – ringkasan hari ini",
-  "/bulan_ini – ringkasan bulan ini",
+  "/bulan_ini – ringkasan bulan ini (periode gajian)\n/gajian – atur tanggal mulai bulan, misal /gajian 25",
   "/hapus – hapus transaksi terakhir",
   "/saldo – lihat saldo semua akun",
   "/password – bikin atau ganti password dashboard",
@@ -105,9 +106,9 @@ async function describe(userId: number, tx: Transaction): Promise<string> {
     .join("\n");
 }
 
-async function budgetWarning(userId: number, tx: Transaction): Promise<string | null> {
+async function budgetWarning(userId: number, tx: Transaction, startDay: number): Promise<string | null> {
   if (tx.type !== "expense" || !tx.categoryId) return null;
-  const status = await budgetStatus(userId, tx.categoryId, tx.occurredOn);
+  const status = await budgetStatus(userId, tx.categoryId, tx.occurredOn, startDay);
   if (!status || status.limit <= 0) return null;
   const pct = Math.round((status.spent / status.limit) * 100);
   if (pct < 80) return null;
@@ -171,7 +172,7 @@ async function balancesText(userId: number): Promise<string> {
   return lines.join("\n");
 }
 
-async function handleSaldo(userId: number, text: string): Promise<string> {
+async function handleSaldo(userId: number, text: string, startDay: number): Promise<string> {
   const accounts = await listAccounts(userId);
   const today = todayJakarta();
   const parsed = parseSaldo(text, accounts, today);
@@ -215,13 +216,14 @@ async function handleSaldo(userId: number, text: string): Promise<string> {
     lines.push(`⚠️ Nominal nggak kebaca: ${parsed.missing.map((a) => escapeHtml(a.name)).join(", ")}`);
   }
 
-  const { start, end } = monthRange(parsed.date);
+  const periodOfDate = periodKey(parsed.date, startDay);
+  const { start, end } = periodRange(periodOfDate, startDay);
   const monthDiff = after.unrecordedBetween(start, end);
   const hasCompared = after.unrecorded().some((u) => u.takenOn >= start && u.takenOn <= end);
   if (hasCompared) {
     lines.push(
       "",
-      `Selisih tak tercatat ${formatMonthId(parsed.date)}: <b>${monthDiff === 0 ? "Rp0 ✓" : signed(monthDiff)}</b>`,
+      `Selisih tak tercatat ${formatPeriodId(periodOfDate, startDay)}: <b>${monthDiff === 0 ? "Rp0 ✓" : signed(monthDiff)}</b>`,
       monthDiff > 0
         ? "<i>Plus = bunga, cashback, atau pemasukan yang belum dicatat.</i>"
         : monthDiff < 0
@@ -295,12 +297,40 @@ export function createBot(token: string) {
 
   bot.command("bulan_ini", async (ctx) => {
     const today = todayJakarta();
-    const { start, end } = monthRange(today);
-    await ctx.reply(await summaryText(ctx.user.id, formatMonthId(today), start, end), { parse_mode: "HTML" });
+    const day = ctx.user.monthStartDay;
+    const key = periodKey(today, day);
+    const { start, end } = periodRange(key, day);
+    await ctx.reply(await summaryText(ctx.user.id, formatPeriodId(key, day), start, end), { parse_mode: "HTML" });
+  });
+
+  // /gajian 25: budget months start on the 25th (25 Oct - 24 Nov counts as November). /gajian 1 resets it.
+  bot.command("gajian", async (ctx) => {
+    const arg = ctx.match.trim();
+    const day = ctx.user.monthStartDay;
+    if (!arg) {
+      return ctx.reply(
+        [
+          day > 1
+            ? `Bulan buku lu mulai tiap tanggal ${day}. Periode sekarang: ${formatPeriodId(periodKey(todayJakarta(), day), day)}.`
+            : "Bulan buku lu ikut kalender (tanggal 1).",
+          "Ganti: <code>/gajian 25</code> (tanggal 1-28). Balikin ke kalender: <code>/gajian 1</code>.",
+        ].join("\n"),
+        { parse_mode: "HTML" },
+      );
+    }
+    const n = Number(arg);
+    if (!/^\d{1,2}$/.test(arg) || !(await setMonthStartDay(ctx.user.id, n))) {
+      return ctx.reply("Isi tanggal 1-28, misal <code>/gajian 25</code>.", { parse_mode: "HTML" });
+    }
+    const key = periodKey(todayJakarta(), n);
+    await ctx.reply(
+      `✅ Bulan buku mulai tiap tanggal ${n}. Periode sekarang: ${formatPeriodId(key, n)}. ` +
+        "Overview, budget, analitik, dan laporan bot ikut aturan ini.",
+    );
   });
 
   bot.command("saldo", async (ctx) => {
-    await ctx.reply(await handleSaldo(ctx.user.id, ctx.message?.text ?? "/saldo"), { parse_mode: "HTML" });
+    await ctx.reply(await handleSaldo(ctx.user.id, ctx.message?.text ?? "/saldo", ctx.user.monthStartDay), { parse_mode: "HTML" });
   });
 
   bot.command("hapus", async (ctx) => {
@@ -346,7 +376,7 @@ export function createBot(token: string) {
 
     if (text.startsWith("/")) return ctx.reply("Command nggak dikenal. Coba /bantuan");
     if (isSaldoMessage(text)) {
-      return ctx.reply(await handleSaldo(ctx.user.id, text), { parse_mode: "HTML" });
+      return ctx.reply(await handleSaldo(ctx.user.id, text, ctx.user.monthStartDay), { parse_mode: "HTML" });
     }
 
     const [accounts, categories] = await Promise.all([listAccounts(ctx.user.id), listCategories(ctx.user.id)]);
@@ -368,7 +398,7 @@ export function createBot(token: string) {
     }
 
     const tx = await saveDraft(ctx.user.id, result.draft, text);
-    const warning = await budgetWarning(ctx.user.id, tx);
+    const warning = await budgetWarning(ctx.user.id, tx, ctx.user.monthStartDay);
     const body = [await describe(ctx.user.id, tx), warning].filter(Boolean).join("\n\n");
     await ctx.reply(body, { parse_mode: "HTML", reply_markup: txKeyboard(tx) });
   });
@@ -391,7 +421,7 @@ export function createBot(token: string) {
   bot.callbackQuery(/^s:(\d+):(\d+)$/, async (ctx) => {
     const tx = await setTransactionCategory(ctx.user.id, Number(ctx.match[1]), Number(ctx.match[2]));
     if (!tx) return ctx.answerCallbackQuery("Transaksi nggak ada");
-    const warning = await budgetWarning(ctx.user.id, tx);
+    const warning = await budgetWarning(ctx.user.id, tx, ctx.user.monthStartDay);
     const body = [await describe(ctx.user.id, tx), warning].filter(Boolean).join("\n\n");
     await ctx.editMessageText(body, { parse_mode: "HTML", reply_markup: txKeyboard(tx) });
     await ctx.answerCallbackQuery("Kategori diganti");

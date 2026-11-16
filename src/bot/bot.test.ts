@@ -18,9 +18,15 @@ vi.mock("@/lib/users", async (importOriginal) => ({
       username: username ? username.toLowerCase() : null,
       passwordHash: prev?.passwordHash ?? null,
       passwordPromptUntil: prev?.passwordPromptUntil ?? null,
+      monthStartDay: prev?.monthStartDay ?? 1,
     };
     store.users.set(telegramId, user);
     return user;
+  },
+  setMonthStartDay: async (userId: number, day: number) => {
+    if (!Number.isInteger(day) || day < 1 || day > 28) return false;
+    for (const u of store.users.values()) if (u.id === userId) u.monthStartDay = day;
+    return true;
   },
   startPasswordPrompt: async (userId: number) => {
     for (const u of store.users.values()) if (u.id === userId) u.passwordPromptUntil = new Date(Date.now() + 5 * 60_000);
@@ -161,6 +167,23 @@ describe("bot", () => {
       },
     } as any);
     expect(store.txs).toHaveLength(2);
+  });
+
+  it("sets the day a budget month starts with /gajian", async () => {
+    const { bot, sent } = makeBot();
+    await bot.handleUpdate(textUpdate(42, "/gajian 25") as any);
+    expect(store.users.get(42).monthStartDay).toBe(25);
+    expect(sent.find((x) => x.method === "sendMessage")!.payload.text).toContain("tanggal 25");
+
+    for (const bad of ["0", "29", "abc", "2.5"]) {
+      sent.length = 0;
+      await bot.handleUpdate(textUpdate(42, `/gajian ${bad}`) as any);
+      expect(sent[0].payload.text).toContain("1-28");
+    }
+    expect(store.users.get(42).monthStartDay).toBe(25);
+
+    await bot.handleUpdate(textUpdate(42, "/gajian 1") as any);
+    expect(store.users.get(42).monthStartDay).toBe(1);
   });
 
   it("lets anyone in when the allowlist is *", async () => {

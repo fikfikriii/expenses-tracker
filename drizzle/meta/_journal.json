@@ -57,6 +57,13 @@
       "when": 1794633495270,
       "tag": "0007_password_prompt",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1794802092025,
+      "tag": "0008_month_start_day",
+      "breakpoints": true
     }
   ]
 }

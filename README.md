@@ -13,7 +13,9 @@ transfer 1jt bca ke gopay    -> Transfer antar akun (opsional, nggak dihitung pe
 saldo bca 5,2jt mandiri 3jt  -> Catat saldo asli akhir bulan
 ```
 
-Command: `/hari_ini`, `/bulan_ini`, `/saldo`, `/hapus` (hapus transaksi terakhir), `/bantuan`.
+Command: `/hari_ini`, `/bulan_ini`, `/saldo`, `/hapus` (hapus transaksi terakhir), `/gajian`, `/password`, `/bantuan`.
+
+**Bulan gajian.** Kalau gajian nggak tiap tanggal 1, kirim `/gajian 25` (tanggal 1-28, per user). Bulan buku jadi mulai tanggal itu dan dinamai sesuai bulan tempat dia berakhir: 25 Okt - 24 Nov = November. Dipakai di Overview, Budget, Analitik, `/bulan_ini`, peringatan budget, dan laporan bot. Saldo akun nggak terpengaruh (tanggal transaksi tetap asli). `/gajian 1` balik ke kalender.
 Tiap catatan ada tombol **Ganti kategori** dan **Batal**.
 
 ## Cara kerja

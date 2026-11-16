@@ -50,6 +50,8 @@ export const users = pgTable("users", {
   // While in the future, the user's next plain message is read as their new password
   // (set by /password and /start, cleared when used). Keeps a password out of the expense parser.
   passwordPromptUntil: timestamp("password_prompt_until", { withTimezone: true }),
+  // Day (1-28) a budget month starts on, for people paid mid-month. 1 = calendar month.
+  monthStartDay: integer("month_start_day").notNull().default(1),
   failedLogins: integer("failed_logins").notNull().default(0),
   lockedUntil: timestamp("locked_until", { withTimezone: true }),
   // Bumped when the password changes; invalidates every existing dashboard session.

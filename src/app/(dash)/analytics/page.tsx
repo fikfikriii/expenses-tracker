@@ -1,23 +1,24 @@
 import { requireUser } from "@/lib/session";
 import Link from "next/link";
-import { DataTable, Legend, MonthBars, VIZ, VIZ_OTHER, compact } from "@/components/charts";
-import { formatMonthId, formatRupiah, monthRange, todayJakarta } from "@/lib/dates";
-import { monthlyBreakdown } from "@/lib/ledger";
+import { DataTable, Legend, MonthBars, NetWorthBars, VIZ, VIZ_OTHER } from "@/components/charts";
+import { formatMonthId, formatRupiah, periodKey, periodRange, shiftMonth, todayJakarta } from "@/lib/dates";
+import { netWorthTrend } from "@/lib/balances";
+import { loadBalanceBook, monthlyBreakdown } from "@/lib/ledger";
 
 const RANGES = [3, 6, 12];
-
-function shiftMonth(month: string, delta: number): string {
-  const [y, m] = month.split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1 + delta, 1)).toISOString().slice(0, 7);
-}
 
 export default async function AnalyticsPage({ searchParams }: { searchParams: Promise<{ range?: string }> }) {
   const user = await requireUser();
   const { range: rangeParam } = await searchParams;
   const n = RANGES.includes(Number(rangeParam)) ? Number(rangeParam) : 6;
-  const thisMonth = todayJakarta().slice(0, 7);
+  const day = user.monthStartDay;
+  const thisMonth = periodKey(todayJakarta(), day);
   const months = Array.from({ length: n }, (_, i) => shiftMonth(thisMonth, i - (n - 1)));
-  const rows = await monthlyBreakdown(user.id, `${months[0]}-01`, monthRange(`${thisMonth}-01`).end);
+  const [rows, book] = await Promise.all([
+    monthlyBreakdown(user.id, periodRange(months[0], day).start, periodRange(thisMonth, day).end, day),
+    loadBalanceBook(user.id),
+  ]);
+  const trend = netWorthTrend(book, thisMonth, todayJakarta(), n, day);
 
   const sum = (f: (r: (typeof rows)[number]) => boolean) => rows.filter(f).reduce((s, r) => s + r.total, 0);
   const flow = months.map((m) => [sum((r) => r.month === m && r.type === "income"), sum((r) => r.month === m && r.type === "expense")]);
@@ -37,11 +38,6 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
     ),
   );
 
-  const accTotals = new Map<string, number>();
-  for (const r of rows) if (r.type === "expense") accTotals.set(r.account, (accTotals.get(r.account) ?? 0) + r.total);
-  const accList = [...accTotals.entries()].sort((a, b) => b[1] - a[1]);
-  const accSum = accList.reduce((s, [, v]) => s + v, 0);
-
   const flowSeries = [{ name: "Pemasukan", color: VIZ[0] }, { name: "Pengeluaran", color: VIZ[1] }];
   const totalIncome = flow.reduce((s, f) => s + f[0], 0);
   const totalExpense = flow.reduce((s, f) => s + f[1], 0);
@@ -57,6 +53,17 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
           ))}
         </div>
       </div>
+
+
+      {trend.length > 1 && (
+        <section className="card flex flex-col gap-3">
+          <div>
+            <h2 className="font-medium">Total kekayaan per bulan</h2>
+            <p className="text-xs text-muted">Saldo akhir bulan, {n} bulan terakhir (mulai dari data pertama).</p>
+          </div>
+          <NetWorthBars data={trend} />
+        </section>
+      )}
 
       {empty ? (
         <p className="card py-10 text-center text-sm text-muted">Belum ada transaksi di rentang ini.</p>
@@ -102,31 +109,8 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
               <p className="py-6 text-center text-sm text-muted">Belum ada pengeluaran.</p>
             )}
           </section>
-
-          <section className="card flex flex-col gap-3">
-            <div>
-              <h2 className="font-medium">Pengeluaran per akun</h2>
-              <p className="text-xs text-muted">Akun mana yang paling sering dipakai buat bayar, {n} bulan terakhir.</p>
-            </div>
-            <ul className="flex flex-col gap-2.5">
-              {accList.map(([name, v]) => (
-                <li key={name} className="flex flex-col gap-1">
-                  <div className="flex justify-between text-sm">
-                    <span>{name}</span>
-                    <span className="tabular-nums">
-                      {formatRupiah(v)} <span className="text-xs text-muted">{Math.round((v / Math.max(1, accSum)) * 100)}%</span>
-                    </span>
-                  </div>
-                  <div className="h-1.5 rounded-full bg-black/5 dark:bg-white/10" title={`${name}: ${formatRupiah(v)} (${compact(v)})`}>
-                    <div className="h-1.5 rounded-full" style={{ width: `${(v / (accList[0]?.[1] || 1)) * 100}%`, background: VIZ[0] }} />
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </section>
         </>
       )}
-      <p className="text-xs text-muted">Grafik kekayaan per bulan ada di <Link href="/" className="underline">Overview</Link>.</p>
     </>
   );
 }
