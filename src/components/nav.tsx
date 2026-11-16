@@ -14,16 +14,11 @@ const LINKS = [
   { href: "/categories", label: "Kategori" },
 ];
 
+/** Thin progress bar across the top of the page while the clicked link's page is loading. */
 function Pending() {
   const { pending } = useLinkStatus();
-  return (
-    <span
-      aria-hidden
-      className={`ml-1.5 inline-block size-3 animate-spin rounded-full border-2 border-current border-t-transparent align-[-1px] ${
-        pending ? "" : "hidden"
-      }`}
-    />
-  );
+  if (!pending) return null;
+  return <span aria-hidden className="top-progress" />;
 }
 
 export function Nav() {
