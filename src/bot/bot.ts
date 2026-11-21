@@ -11,6 +11,7 @@ import {
   loadBalanceBook,
   saveSnapshots,
   listCategories,
+  patchTransaction,
   saveDraft,
   setTransactionCategory,
   summarize,
@@ -29,6 +30,7 @@ import {
   startPasswordPrompt,
 } from "@/lib/users";
 import { PASSWORD_MIN } from "@/lib/password";
+import { NOTE_MAX, parseEditAmount, parseEditDate, parseEditNote } from "@/lib/edit";
 
 // `user` is set by the access middleware before any handler runs.
 type BotContext = Context & { user: User };
@@ -56,6 +58,7 @@ const HELP = [
   "<b>Command</b>",
   "/hari_ini – ringkasan hari ini",
   "/bulan_ini – ringkasan bulan ini (periode gajian)\n/gajian – atur tanggal mulai bulan, misal /gajian 25",
+  "/edit – ubah transaksi terakhir (nominal, tanggal, catatan, akun, kategori)",
   "/hapus – hapus transaksi terakhir",
   "/saldo – lihat saldo semua akun",
   "/password – bikin atau ganti password dashboard",
@@ -76,7 +79,7 @@ function dashboardUrl(): string | null {
   return host ? `https://${host}` : null;
 }
 
-async function describe(userId: number, tx: Transaction): Promise<string> {
+async function describe(userId: number, tx: Transaction, verb = "dicatat"): Promise<string> {
   const [accounts, categories] = await Promise.all([listAccounts(userId), listCategories(userId)]);
   const acc = (id: number | null) => accounts.find((a) => a.id === id)?.name ?? "?";
   const cur = (id: number | null): Currency => accounts.find((a) => a.id === id)?.currency ?? "IDR";
@@ -90,12 +93,12 @@ async function describe(userId: number, tx: Transaction): Promise<string> {
         ? `\n💱 Diterima ${formatMoney(tx.toAmount, cur(tx.toAccountId))}`
         : "";
     return [
-      "🔁 <b>Transfer dicatat</b>",
+      `🔁 <b>Transfer ${verb}</b>`,
       `${money} · ${escapeHtml(acc(tx.accountId))} → ${escapeHtml(acc(tx.toAccountId))}${fx}`,
       `📅 ${date}`,
     ].join("\n");
   }
-  const title = tx.type === "income" ? "💰 <b>Pemasukan dicatat</b>" : "💸 <b>Pengeluaran dicatat</b>";
+  const title = tx.type === "income" ? `💰 <b>Pemasukan ${verb}</b>` : `💸 <b>Pengeluaran ${verb}</b>`;
   return [
     title,
     `${money} · ${cat ? `${cat.icon} ${escapeHtml(cat.name)}`.trim() : "Tanpa kategori"}`,
@@ -121,7 +124,33 @@ async function budgetWarning(userId: number, tx: Transaction, startDay: number):
 function txKeyboard(tx: Transaction) {
   const kb = new InlineKeyboard();
   if (tx.type !== "transfer") kb.text("🏷️ Ganti kategori", `c:${tx.id}`);
-  return kb.text("↩️ Batal", `u:${tx.id}`);
+  return kb.text("✏️ Edit", `e:${tx.id}`).text("↩️ Batal", `u:${tx.id}`);
+}
+
+// Editing a field asks for the new value in a reply. The prompt carries the transaction id, so the
+// reply can be matched back to it without keeping any state.
+const EDIT_FIELDS = {
+  a: { label: "nominal", hint: "nominal baru, misal 25rb atau 15.000" },
+  d: { label: "tanggal", hint: "tanggal baru, misal kemarin, 5 Nov, atau 05/11/2026" },
+  n: { label: "catatan", hint: "catatan baru" },
+} as const;
+type EditField = keyof typeof EDIT_FIELDS;
+const EDIT_PROMPT_RE = /^✏️ Ubah (nominal|tanggal|catatan) transaksi #(\d+)/;
+const FIELD_BY_LABEL: Record<string, EditField> = { nominal: "a", tanggal: "d", catatan: "n" };
+
+/** A transfer between two currencies has two amounts that depend on each other, so only the dashboard edits it. */
+function canEditAmount(tx: Transaction, accounts: { id: number; currency?: Currency | null }[]): boolean {
+  if (tx.type !== "transfer") return true;
+  const cur = (id: number | null) => accounts.find((a) => a.id === id)?.currency ?? "IDR";
+  return cur(tx.accountId) === cur(tx.toAccountId);
+}
+
+function editKeyboard(tx: Transaction, amountEditable: boolean) {
+  const kb = new InlineKeyboard();
+  if (amountEditable) kb.text("💵 Nominal", `ef:${tx.id}:a`);
+  kb.text("📅 Tanggal", `ef:${tx.id}:d`).text("📝 Catatan", `ef:${tx.id}:n`).row();
+  if (tx.type !== "transfer") kb.text("👛 Akun", `ea:${tx.id}`).text("🏷️ Kategori", `c:${tx.id}`).row();
+  return kb.text("⬅️ Kembali", `eb:${tx.id}`);
 }
 
 async function summaryText(userId: number, title: string, start: string, end: string): Promise<string> {
@@ -340,6 +369,16 @@ export function createBot(token: string) {
     await ctx.reply(`🗑️ Dihapus:\n${await describe(ctx.user.id, tx)}`, { parse_mode: "HTML" });
   });
 
+  bot.command("edit", async (ctx) => {
+    const tx = await lastTransaction(ctx.user.id);
+    if (!tx) return ctx.reply("Belum ada transaksi.");
+    const accounts = await listAccounts(ctx.user.id);
+    await ctx.reply(`${await describe(ctx.user.id, tx)}\n\nMau ubah yang mana?`, {
+      parse_mode: "HTML",
+      reply_markup: editKeyboard(tx, canEditAmount(tx, accounts)),
+    });
+  });
+
   bot.on("message:text", async (ctx) => {
     const text = ctx.message.text;
 
@@ -372,6 +411,38 @@ export function createBot(token: string) {
         ].join("\n"),
         { parse_mode: "HTML" },
       );
+    }
+
+    // A reply to one of the "Ubah ..." prompts carries the new value for that field.
+    const editPrompt = replied?.from?.id === ctx.me.id ? EDIT_PROMPT_RE.exec(replied.text ?? "") : null;
+    if (editPrompt && !text.startsWith("/")) {
+      const field = FIELD_BY_LABEL[editPrompt[1]];
+      const tx = await getTransaction(ctx.user.id, Number(editPrompt[2]));
+      if (!tx) return ctx.reply("Transaksi nggak ada, mungkin udah dihapus.");
+      const accounts = await listAccounts(ctx.user.id);
+      const retry = `Balas pesan "Ubah ${EDIT_FIELDS[field].label}" tadi lagi, atau kirim /edit.`;
+
+      let patch: Parameters<typeof patchTransaction>[2];
+      if (field === "a") {
+        const currency = accounts.find((a) => a.id === tx.accountId)?.currency ?? "IDR";
+        const amount = canEditAmount(tx, accounts) ? parseEditAmount(text, currency) : null;
+        if (!amount) return ctx.reply(`Nominalnya nggak kebaca 🤔 Contoh: 25rb atau 15.000. ${retry}`);
+        patch = { amount };
+      } else if (field === "d") {
+        const date = parseEditDate(text, todayJakarta());
+        if (!date) return ctx.reply(`Tanggalnya nggak kebaca 🤔 Contoh: kemarin, 5 Nov, 05/11/2026. ${retry}`);
+        patch = { occurredOn: date };
+      } else {
+        const note = parseEditNote(text);
+        if (!note) return ctx.reply(`Catatan nggak boleh kosong atau lebih dari ${NOTE_MAX} karakter. ${retry}`);
+        patch = { note };
+      }
+
+      const updated = await patchTransaction(ctx.user.id, tx.id, patch);
+      if (!updated) return ctx.reply("Transaksi nggak ada, mungkin udah dihapus.");
+      const warning = await budgetWarning(ctx.user.id, updated, ctx.user.monthStartDay);
+      const body = [await describe(ctx.user.id, updated, "diubah"), warning].filter(Boolean).join("\n\n");
+      return ctx.reply(body, { parse_mode: "HTML", reply_markup: txKeyboard(updated) });
     }
 
     if (text.startsWith("/")) return ctx.reply("Command nggak dikenal. Coba /bantuan");
@@ -425,6 +496,71 @@ export function createBot(token: string) {
     const body = [await describe(ctx.user.id, tx), warning].filter(Boolean).join("\n\n");
     await ctx.editMessageText(body, { parse_mode: "HTML", reply_markup: txKeyboard(tx) });
     await ctx.answerCallbackQuery("Kategori diganti");
+  });
+
+  // e:<txId> -> show what can be edited
+  bot.callbackQuery(/^e:(\d+)$/, async (ctx) => {
+    const tx = await getTransaction(ctx.user.id, Number(ctx.match[1]));
+    if (!tx) return ctx.answerCallbackQuery("Transaksi nggak ada");
+    const accounts = await listAccounts(ctx.user.id);
+    await ctx.editMessageReplyMarkup({ reply_markup: editKeyboard(tx, canEditAmount(tx, accounts)) });
+    await ctx.answerCallbackQuery();
+  });
+
+  // eb:<txId> -> back to the normal buttons
+  bot.callbackQuery(/^eb:(\d+)$/, async (ctx) => {
+    const tx = await getTransaction(ctx.user.id, Number(ctx.match[1]));
+    if (!tx) return ctx.answerCallbackQuery("Transaksi nggak ada");
+    await ctx.editMessageReplyMarkup({ reply_markup: txKeyboard(tx) });
+    await ctx.answerCallbackQuery();
+  });
+
+  // ef:<txId>:<a|d|n> -> ask for the new amount, date or note
+  bot.callbackQuery(/^ef:(\d+):([adn])$/, async (ctx) => {
+    const tx = await getTransaction(ctx.user.id, Number(ctx.match[1]));
+    if (!tx) return ctx.answerCallbackQuery("Transaksi nggak ada");
+    const field = EDIT_FIELDS[ctx.match[2] as EditField];
+    await ctx.reply(`✏️ Ubah ${field.label} transaksi #${tx.id}\nBalas pesan ini dengan ${field.hint}.`, {
+      reply_markup: { force_reply: true, input_field_placeholder: field.label[0].toUpperCase() + field.label.slice(1) + " baru" },
+    });
+    await ctx.answerCallbackQuery();
+  });
+
+  // ea:<txId> -> pick another account (same currency, so the amount stays valid)
+  bot.callbackQuery(/^ea:(\d+)$/, async (ctx) => {
+    const tx = await getTransaction(ctx.user.id, Number(ctx.match[1]));
+    if (!tx || tx.type === "transfer") return ctx.answerCallbackQuery("Transaksi nggak ada");
+    const accounts = await listAccounts(ctx.user.id);
+    const cur = accounts.find((a) => a.id === tx.accountId)?.currency ?? "IDR";
+    const options = accounts.filter((a) => a.id !== tx.accountId && (a.currency ?? "IDR") === cur);
+    if (options.length === 0) return ctx.answerCallbackQuery("Nggak ada akun lain dengan mata uang yang sama");
+    const kb = new InlineKeyboard();
+    options.forEach((a, i) => {
+      kb.text(a.name, `ep:${tx.id}:${a.id}`);
+      if (i % 2 === 1) kb.row();
+    });
+    kb.row().text("⬅️ Kembali", `e:${tx.id}`);
+    await ctx.editMessageReplyMarkup({ reply_markup: kb });
+    await ctx.answerCallbackQuery();
+  });
+
+  // ep:<txId>:<accountId> -> move the transaction to that account
+  bot.callbackQuery(/^ep:(\d+):(\d+)$/, async (ctx) => {
+    const tx = await getTransaction(ctx.user.id, Number(ctx.match[1]));
+    if (!tx || tx.type === "transfer") return ctx.answerCallbackQuery("Transaksi nggak ada");
+    const accounts = await listAccounts(ctx.user.id);
+    const accountId = Number(ctx.match[2]);
+    const cur = (id: number) => accounts.find((a) => a.id === id)?.currency ?? "IDR";
+    if (!accounts.some((a) => a.id === accountId) || cur(accountId) !== cur(tx.accountId)) {
+      return ctx.answerCallbackQuery("Akun nggak cocok");
+    }
+    const updated = await patchTransaction(ctx.user.id, tx.id, { accountId });
+    if (!updated) return ctx.answerCallbackQuery("Transaksi nggak ada");
+    await ctx.editMessageText(await describe(ctx.user.id, updated, "diubah"), {
+      parse_mode: "HTML",
+      reply_markup: txKeyboard(updated),
+    });
+    await ctx.answerCallbackQuery("Akun diganti");
   });
 
   // u:<txId> -> undo

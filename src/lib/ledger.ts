@@ -103,6 +103,21 @@ export async function setTransactionCategory(userId: number, id: number, categor
   return row;
 }
 
+/** Changes only the given fields of one of the user's transactions. */
+export async function patchTransaction(
+  userId: number,
+  id: number,
+  patch: { amount?: number; occurredOn?: string; note?: string; accountId?: number },
+) {
+  if (patch.accountId !== undefined) await assertOwns(userId, { accountIds: [patch.accountId] });
+  const [row] = await db()
+    .update(transactions)
+    .set(patch)
+    .where(and(eq(transactions.id, id), eq(transactions.userId, userId)))
+    .returning();
+  return row;
+}
+
 export async function deleteTransaction(userId: number, id: number) {
   const [row] = await db()
     .delete(transactions)

@@ -71,6 +71,10 @@ vi.mock("@/lib/ledger", () => ({
   getTransaction: async (userId: number, id: number) =>
     store.txs.find((t) => t.id === id && t.userId === userId),
   setTransactionCategory: async () => undefined,
+  patchTransaction: async (userId: number, id: number, patch: any) => {
+    const tx = store.txs.find((t) => t.id === id && t.userId === userId);
+    return tx ? Object.assign(tx, patch) : undefined;
+  },
   deleteTransaction: async (userId: number, id: number) => {
     const i = store.txs.findIndex((t) => t.id === id && t.userId === userId);
     return i < 0 ? undefined : store.txs.splice(i, 1)[0];
@@ -288,6 +292,90 @@ describe("bot", () => {
       await bot.handleUpdate(textUpdate(42, "/password") as any);
       expect(sent[0].payload.text).toContain("username Telegram");
       expect(sent[0].payload.reply_markup).toBeUndefined();
+    });
+  });
+
+  describe("editing a transaction", () => {
+    const cb = (from: number, data: string) => ({
+      update_id: ++n,
+      callback_query: {
+        id: "1", chat_instance: "x", data,
+        from: { id: from, is_bot: false, first_name: "F" },
+        message: { message_id: 1, date: 0, chat: { id: from, type: "private", first_name: "F" } },
+      },
+    });
+    const promptMsg = (text: string) => ({
+      message_id: 600, date: 0, chat: { id: 42, type: "private" },
+      from: { id: 1, is_bot: true, first_name: "t" }, text,
+    });
+    const lastText = (sent: { method: string; payload: any }[]) =>
+      sent.filter((s) => s.method === "sendMessage").at(-1)!.payload;
+
+    it("/edit shows the edit menu for the last transaction", async () => {
+      const { bot, sent } = makeBot();
+      await bot.handleUpdate(textUpdate(42, "15000 makan bubur") as any);
+      sent.length = 0;
+      await bot.handleUpdate(textUpdate(42, "/edit") as any);
+      const reply = lastText(sent);
+      const data = reply.reply_markup.inline_keyboard.flat().map((b: any) => b.callback_data);
+      expect(data).toEqual(["ef:1:a", "ef:1:d", "ef:1:n", "ea:1", "c:1", "eb:1"]);
+    });
+
+    it("asks for the new value with a reply prompt", async () => {
+      const { bot, sent } = makeBot();
+      await bot.handleUpdate(textUpdate(42, "15000 makan bubur") as any);
+      sent.length = 0;
+      await bot.handleUpdate(cb(42, "ef:1:a") as any);
+      const prompt = lastText(sent);
+      expect(prompt.text).toContain("Ubah nominal transaksi #1");
+      expect(prompt.reply_markup.force_reply).toBe(true);
+    });
+
+    it("changes the amount, date and note from replies", async () => {
+      const { bot, sent } = makeBot();
+      await bot.handleUpdate(textUpdate(42, "15000 makan bubur") as any);
+
+      await bot.handleUpdate(textUpdate(42, "25rb", { replyTo: promptMsg("✏️ Ubah nominal transaksi #1\nBalas...") }) as any);
+      expect(store.txs[0].amount).toBe(25000);
+      expect(lastText(sent).text).toContain("Pengeluaran diubah");
+
+      await bot.handleUpdate(textUpdate(42, "5 Nov 2025", { replyTo: promptMsg("✏️ Ubah tanggal transaksi #1\nBalas...") }) as any);
+      expect(store.txs[0].occurredOn).toBe("2025-11-05");
+
+      await bot.handleUpdate(textUpdate(42, "Bubur ayam", { replyTo: promptMsg("✏️ Ubah catatan transaksi #1\nBalas...") }) as any);
+      expect(store.txs[0].note).toBe("Bubur ayam");
+      expect(store.txs).toHaveLength(1); // none of the replies was logged as a new expense
+    });
+
+    it("keeps the transaction when the reply cannot be read", async () => {
+      const { bot, sent } = makeBot();
+      await bot.handleUpdate(textUpdate(42, "15000 makan bubur") as any);
+      await bot.handleUpdate(textUpdate(42, "banyak", { replyTo: promptMsg("✏️ Ubah nominal transaksi #1\nBalas...") }) as any);
+      expect(store.txs[0].amount).toBe(15000);
+      expect(lastText(sent).text).toContain("nggak kebaca");
+      await bot.handleUpdate(textUpdate(42, "terserah", { replyTo: promptMsg("✏️ Ubah tanggal transaksi #1\nBalas...") }) as any);
+      expect(lastText(sent).text).toContain("Tanggalnya nggak kebaca");
+      expect(store.txs).toHaveLength(1);
+    });
+
+    it("moves a transaction to another account", async () => {
+      const { bot, sent } = makeBot();
+      await bot.handleUpdate(textUpdate(42, "15000 makan bubur") as any); // Cash (1)
+      await bot.handleUpdate(cb(42, "ea:1") as any);
+      const kb = sent.filter((s) => s.method === "editMessageReplyMarkup").at(-1)!.payload.reply_markup.inline_keyboard.flat();
+      expect(kb.map((b: any) => b.callback_data)).toContain("ep:1:2");
+      await bot.handleUpdate(cb(42, "ep:1:2") as any);
+      expect(store.txs[0].accountId).toBe(2);
+    });
+
+    it("never edits someone else's transaction", async () => {
+      process.env.ALLOWED_TELEGRAM_USER_IDS = "42,43";
+      const { bot } = makeBot();
+      await bot.handleUpdate(textUpdate(42, "15000 makan bubur") as any);
+      await bot.handleUpdate(textUpdate(43, "20000 makan soto") as any);
+      await bot.handleUpdate(cb(43, "ep:1:2") as any);
+      await bot.handleUpdate(textUpdate(43, "1rb", { replyTo: { ...promptMsg("✏️ Ubah nominal transaksi #1\nBalas..."), chat: { id: 43, type: "private" } } }) as any);
+      expect(store.txs[0]).toMatchObject({ userId: 1, amount: 15000, accountId: 1 });
     });
   });
 
