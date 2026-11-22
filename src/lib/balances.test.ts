@@ -59,6 +59,60 @@ describe("BalanceBook", () => {
   });
 });
 
+describe("capital of an investment account", () => {
+  const dep = { id: 3, type: "investment", initialBalance: 2_000_000 };
+  const bank = { id: 1, type: "bank", initialBalance: 0 };
+  const topUp = tx({ type: "transfer", amount: 10_000_000, accountId: 1, toAccountId: 3, occurredOn: "2026-11-22" });
+
+  it("counts the opening balance as capital, so a top-up is not profit", () => {
+    const b = new BalanceBook([bank, dep], [], [topUp]);
+    expect(b.balanceAt(3, "2026-11-22")).toBe(12_000_000);
+    expect(b.capitalIdr(3, "2026-11-22")).toBe(12_000_000);
+  });
+
+  it("starts from the last balance check before the first transfer", () => {
+    // 2 million at the last check on 12 Nov, then 10 million transferred in on 22 Nov.
+    const b = new BalanceBook(
+      [bank, { ...dep, initialBalance: 0 }],
+      [{ accountId: 3, takenOn: "2026-11-12", balance: 2_000_000 }],
+      [topUp],
+    );
+    const value = b.valueIdr(3, "2026-11-22");
+    expect(value).toBe(12_000_000);
+    expect(value - b.capitalIdr(3, "2026-11-22")).toBe(0);
+  });
+
+  it("still shows real gain: interest after the top-up", () => {
+    const b = new BalanceBook(
+      [bank, dep],
+      [{ accountId: 3, takenOn: "2026-11-30", balance: 12_100_000 }],
+      [topUp],
+    );
+    expect(b.valueIdr(3, "2026-11-30") - b.capitalIdr(3, "2026-11-30")).toBe(100_000);
+  });
+
+  it("counts withdrawals back out", () => {
+    const out = tx({ type: "transfer", amount: 3_000_000, accountId: 3, toAccountId: 1, occurredOn: "2026-11-25" });
+    const b = new BalanceBook([bank, dep], [], [topUp, out]);
+    expect(b.capitalIdr(3, "2026-11-30")).toBe(9_000_000);
+  });
+
+  it("ignores transfers after the date asked for", () => {
+    const b = new BalanceBook([bank, dep], [], [topUp]);
+    expect(b.capitalIdr(3, "2026-11-10")).toBe(2_000_000);
+  });
+
+  it("without transfers, measures from the opening balance or the first check", () => {
+    expect(new BalanceBook([dep], [{ accountId: 3, takenOn: "2026-11-30", balance: 2_100_000 }], []).capitalIdr(3, "2026-11-30")).toBe(2_000_000);
+    const noOpening = { ...dep, initialBalance: 0 };
+    const snaps = [
+      { accountId: 3, takenOn: "2026-10-31", balance: 2_000_000 },
+      { accountId: 3, takenOn: "2026-11-30", balance: 2_100_000 },
+    ];
+    expect(new BalanceBook([noOpening], snaps, []).capitalIdr(3, "2026-11-30")).toBe(2_000_000);
+  });
+});
+
 describe("risk breakdown", () => {
   const accs = [
     { id: 1, type: "bank", initialBalance: 5_000_000 },

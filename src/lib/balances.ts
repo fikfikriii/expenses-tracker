@@ -1,4 +1,4 @@
-import { periodKey, periodRange, shiftMonth } from "@/lib/dates";
+import { addDays, periodKey, periodRange, shiftMonth } from "@/lib/dates";
 // Account balances come from the latest month-end check ("snapshot") plus the
 // transactions logged after it. Unlogged transfers between accounts therefore
 // never make a balance drift for more than one month.
@@ -141,19 +141,36 @@ export class BalanceBook {
   }
 
   /**
-   * Rupiah put into an account through logged transfers, minus rupiah taken out
-   * (an investment's capital). For a USD account this is what the dollars cost.
+   * The capital behind an investment account, in rupiah: what it held before the first logged
+   * transfer (its opening balance or last check), plus rupiah transferred in, minus rupiah taken
+   * out since. For a USD account the transfers count at what the dollars cost.
+   *
+   * Without any transfer, the starting point is the opening balance, or else the first balance
+   * check. Money that arrived without a logged transfer still reads as gain; that is unavoidable.
    */
   capitalIdr(accountId: number, upTo: string): number {
-    let s = 0;
-    for (const tx of this.txs) {
-      if (tx.type !== "transfer" || tx.occurredOn > upTo) continue;
-      if (tx.toAccountId === accountId) s += this.toIdr(tx.accountId, tx.amount, tx.occurredOn);
+    const moves = this.txs
+      .filter((tx) => tx.type === "transfer" && tx.occurredOn <= upTo && (tx.toAccountId === accountId || tx.accountId === accountId))
+      .sort((a, b) => a.occurredOn.localeCompare(b.occurredOn));
+
+    let capital = 0;
+    if (moves.length > 0) {
+      const day = addDays(moves[0].occurredOn, -1);
+      capital = this.toIdr(accountId, this.balanceAt(accountId, day), day);
+    } else {
+      const acc = this.accounts.find((a) => a.id === accountId);
+      const first = this.snapshots(accountId).find((s) => s.takenOn <= upTo);
+      const opening = acc && acc.initialBalance > 0 ? acc.initialBalance : (first?.balance ?? 0);
+      capital = this.toIdr(accountId, opening, first && !(acc && acc.initialBalance > 0) ? first.takenOn : upTo);
+    }
+
+    for (const tx of moves) {
+      if (tx.toAccountId === accountId) capital += this.toIdr(tx.accountId, tx.amount, tx.occurredOn);
       if (tx.accountId === accountId && tx.toAccountId !== null) {
-        s -= this.toIdr(tx.toAccountId, tx.toAmount ?? tx.amount, tx.occurredOn);
+        capital -= this.toIdr(tx.toAccountId, tx.toAmount ?? tx.amount, tx.occurredOn);
       }
     }
-    return s;
+    return capital;
   }
 
   /**
