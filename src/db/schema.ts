@@ -25,6 +25,9 @@ export const accountType = pgEnum("account_type", [
   "other",
 ]);
 
+// How risky an investment account is, set by the user. Null = not classified yet.
+export const riskLevel = pgEnum("risk_level", ["low", "medium", "high"]);
+
 // Amounts are stored in the account currency's smallest unit:
 // whole rupiah for IDR, cents for USD.
 export const currency = pgEnum("currency", ["IDR", "USD"]);
@@ -74,6 +77,8 @@ export const accounts = pgTable(
     name: text("name").notNull(),
     type: accountType("type").notNull().default("other"),
     currency: currency("currency").notNull().default("IDR"),
+    // Only used for investment accounts.
+    risk: riskLevel("risk"),
     // Extra words the bot accepts for this account, e.g. ["bca", "m-banking"].
     aliases: text("aliases").array().notNull().default([]),
     initialBalance: bigint("initial_balance", { mode: "number" }).notNull().default(0),

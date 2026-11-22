@@ -1,9 +1,10 @@
 "use client";
 
-import { useActionState, useEffect, useRef } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { saveAccount, saveCategory, type FormState } from "@/app/(dash)/actions";
 import { ACCOUNT_TYPES } from "@/lib/labels";
 import { toInputValue } from "@/lib/money";
+import { ASSET_PRESETS, RISKS } from "@/lib/risk";
 
 
 function Status({ state, isNew }: { state: FormState; isNew: boolean }) {
@@ -22,12 +23,14 @@ function useResetOnSuccess(state: FormState, isNew: boolean) {
 
 export function AccountForm({ account }: {
   account?: {
-    id: number; name: string; type: string; aliases: string[];
+    id: number; name: string; type: string; risk: string | null; aliases: string[];
     initialBalance: number; isDefault: boolean; archived: boolean; currency: "IDR" | "USD";
   };
 }) {
   const [state, action, pending] = useActionState<FormState, FormData>(saveAccount, null);
   const ref = useResetOnSuccess(state, !account);
+  const [type, setType] = useState(account?.type ?? "bank");
+  const [risk, setRisk] = useState(account?.risk ?? "");
   return (
     <form ref={ref} action={action} className="grid gap-3 sm:grid-cols-2">
       {account && <input type="hidden" name="id" value={account.id} />}
@@ -37,10 +40,32 @@ export function AccountForm({ account }: {
       </label>
       <label className="label">
         Tipe
-        <select name="type" defaultValue={account?.type ?? "bank"} className="input">
+        <select name="type" value={type} onChange={(e) => setType(e.target.value)} className="input">
           {ACCOUNT_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>
       </label>
+      {type === "investment" && (
+        <>
+          <label className="label">
+            Jenis aset (saran risiko)
+            <select
+              defaultValue=""
+              onChange={(e) => e.target.value && setRisk(ASSET_PRESETS[Number(e.target.value) - 1].risk)}
+              className="input"
+            >
+              <option value="">Pilih buat ngisi otomatis...</option>
+              {ASSET_PRESETS.map((p, i) => <option key={p.label} value={i + 1}>{p.label}</option>)}
+            </select>
+          </label>
+          <label className="label">
+            Tingkat risiko
+            <select name="risk" value={risk} onChange={(e) => setRisk(e.target.value)} className="input">
+              <option value="">Belum diklasifikasi</option>
+              {RISKS.map((r) => <option key={r.value} value={r.value}>{r.icon} {r.label}</option>)}
+            </select>
+          </label>
+        </>
+      )}
       <label className="label">
         Mata uang
         <select name="currency" defaultValue={account?.currency ?? "IDR"} className="input">

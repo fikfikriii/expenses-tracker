@@ -59,6 +59,26 @@ describe("BalanceBook", () => {
   });
 });
 
+describe("risk breakdown", () => {
+  const accs = [
+    { id: 1, type: "bank", initialBalance: 5_000_000 },
+    { id: 2, type: "investment", risk: "low", initialBalance: 2_000_000 },
+    { id: 3, type: "investment", risk: "high", initialBalance: 1_000_000 },
+    { id: 4, type: "investment", risk: null, initialBalance: 1_000_000 },
+    { id: 5, type: "investment", risk: "high", initialBalance: 9_000_000, archived: true },
+  ];
+
+  it("groups investments by risk and leaves out cash and archived accounts", () => {
+    const r = new BalanceBook(accs, [], []).riskBreakdown("2026-11-30");
+    expect(r.map((x) => [x.risk, x.value])).toEqual([["low", 2_000_000], ["high", 1_000_000], [null, 1_000_000]]);
+    expect(r.map((x) => x.share)).toEqual([0.5, 0.25, 0.25]);
+  });
+
+  it("is empty without investments", () => {
+    expect(new BalanceBook([accs[0]], [], []).riskBreakdown("2026-11-30")).toEqual([]);
+  });
+});
+
 describe("USD accounts", () => {
   const accs = [
     { id: 1, type: "bank", initialBalance: 0, currency: "IDR" as const },

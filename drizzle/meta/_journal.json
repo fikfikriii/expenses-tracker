@@ -64,6 +64,13 @@
       "when": 1794802092025,
       "tag": "0008_month_start_day",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1795275585777,
+      "tag": "0009_risk_level",
+      "breakpoints": true
     }
   ]
 }

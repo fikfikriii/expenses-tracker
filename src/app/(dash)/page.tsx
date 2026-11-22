@@ -3,6 +3,7 @@ import Link from "next/link";
 import { BudgetBar } from "@/components/budget-bar";
 import { TxList } from "@/components/tx-list";
 import { accountTypeLabel } from "@/lib/labels";
+import { riskLabel, type Risk } from "@/lib/risk";
 import { formatDateId, formatPeriodId, formatRupiah, periodKey, periodRange, shiftMonth, todayJakarta } from "@/lib/dates";
 import { isInvestment, netWorthTrend } from "@/lib/balances";
 import { NetWorthBars } from "@/components/charts";
@@ -199,7 +200,7 @@ function Stat({ label, value, tone, sub }: { label: string; value: string; tone?
   );
 }
 
-type Acc = { id: number; name: string; type: string; currency: Currency };
+type Acc = { id: number; name: string; type: string; currency: Currency; risk?: string | null };
 type Book = Awaited<ReturnType<typeof loadBalanceBook>>;
 
 function AccountGroup({ title, accounts, book, date, showCapital }: {
@@ -225,6 +226,7 @@ function AccountGroup({ title, accounts, book, date, showCapital }: {
                 <div className="truncate">{a.name}</div>
                 <div className="text-xs text-muted">
                   {accountTypeLabel(a.type)}
+                  {a.type === "investment" && ` · ${riskLabel(a.risk as Risk | null)}`}
                   {a.currency !== "IDR" && ` · ${a.currency}`}
                   {checked ? ` · cek ${formatDateId(checked)}` : " · belum pernah cek"}
                 </div>

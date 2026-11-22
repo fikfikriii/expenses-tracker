@@ -13,6 +13,8 @@ export type BalanceAccount = {
   id: number;
   type: string;
   currency?: Currency;
+  /** Risk class, for investment accounts. */
+  risk?: string | null;
   initialBalance: number;
   archived?: boolean;
 };
@@ -152,6 +154,23 @@ export class BalanceBook {
       }
     }
     return s;
+  }
+
+  /**
+   * Investment value (rupiah) grouped by risk class, in low, medium, high order and then the accounts
+   * nobody classified yet. Empty groups are left out.
+   */
+  riskBreakdown(date: string): { risk: "low" | "medium" | "high" | null; value: number; share: number }[] {
+    const sums = new Map<string | null, number>();
+    for (const a of this.accounts) {
+      if (a.archived || !isInvestment(a)) continue;
+      const key = a.risk === "low" || a.risk === "medium" || a.risk === "high" ? a.risk : null;
+      sums.set(key, (sums.get(key) ?? 0) + this.valueIdr(a.id, date));
+    }
+    const total = [...sums.values()].reduce((s, v) => s + v, 0);
+    return (["low", "medium", "high", null] as const)
+      .filter((k) => sums.has(k))
+      .map((k) => ({ risk: k, value: sums.get(k)!, share: total > 0 ? sums.get(k)! / total : 0 }));
   }
 
   totals(date: string, includeArchived = false) {

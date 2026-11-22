@@ -9,6 +9,7 @@ import { removeFxRate, removeSnapshot } from "../actions";
 import { formatMoney } from "@/lib/money";
 import { listRates } from "@/lib/fx";
 import { FxRateForm } from "@/components/fx-form";
+import { riskLabel } from "@/lib/risk";
 
 const signed = (n: number) => `${n < 0 ? "−" : "+"}${formatRupiah(Math.abs(n))}`;
 
@@ -25,6 +26,7 @@ export default async function BalancesPage() {
   const active = accounts.filter((a) => !a.archived);
   const name = new Map(accounts.map((a) => [a.id, a.name]));
   const cur = (id: number) => accounts.find((a) => a.id === id)?.currency ?? "IDR";
+  const riskMix = book.riskBreakdown(today);
   const hasUsd = accounts.some((a) => a.currency === "USD");
 
   // Unrecorded money per budget period (see /gajian), newest first.
@@ -60,6 +62,33 @@ export default async function BalancesPage() {
           }))}
         />
       </section>
+
+      {riskMix.length > 0 && (
+        <section className="card flex flex-col gap-3">
+          <h2 className="font-medium">Komposisi risiko investasi</h2>
+          <ul className="flex flex-col gap-2">
+            {riskMix.map((r) => (
+              <li key={r.risk ?? "none"} className="flex flex-col gap-1 text-sm">
+                <div className="flex justify-between">
+                  <span>{riskLabel(r.risk)}</span>
+                  <span className="tabular-nums">
+                    {formatRupiah(r.value)} · {Math.round(r.share * 100)}%
+                  </span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-black/10 dark:bg-white/10">
+                  <div
+                    className={`h-full ${r.risk === "low" ? "bg-green-500" : r.risk === "medium" ? "bg-yellow-500" : r.risk === "high" ? "bg-red-500" : "bg-neutral-400"}`}
+                    style={{ width: `${Math.max(2, Math.round(r.share * 100))}%` }}
+                  />
+                </div>
+              </li>
+            ))}
+          </ul>
+          {riskMix.some((r) => r.risk === null) && (
+            <p className="text-xs text-muted">Atur risiko tiap akun investasi di halaman Akun.</p>
+          )}
+        </section>
+      )}
 
       <section className="card flex flex-col gap-3">
         <h2 className="font-medium">Selisih tak tercatat</h2>

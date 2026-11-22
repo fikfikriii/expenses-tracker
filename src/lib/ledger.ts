@@ -396,6 +396,8 @@ export type AccountInput = {
   name: string;
   type: (typeof schema.accountType.enumValues)[number];
   currency: "IDR" | "USD";
+  /** Only kept for investment accounts. */
+  risk: "low" | "medium" | "high" | null;
   aliases: string[];
   initialBalance: number;
   isDefault: boolean;

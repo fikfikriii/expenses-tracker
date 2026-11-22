@@ -9,6 +9,7 @@ import { schema } from "@/db";
 import { convert, parseFormAmount, type Currency } from "@/lib/money";
 import { createRecurring, deleteRecurring, updateRecurring } from "@/lib/recurring";
 import { todayJakarta } from "@/lib/dates";
+import { isRisk, type Risk } from "@/lib/risk";
 import { currentRate, deleteRate, saveRate } from "@/lib/fx";
 import {
   createAccount,
@@ -125,6 +126,7 @@ export async function saveAccount(_prev: FormState, f: FormData): Promise<FormSt
     name,
     type,
     currency: currency as Currency,
+    risk: type === "investment" && isRisk(str(f, "risk")) ? (str(f, "risk") as Risk) : null,
     aliases,
     initialBalance,
     isDefault: f.get("isDefault") === "on",

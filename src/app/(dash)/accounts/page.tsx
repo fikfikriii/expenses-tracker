@@ -2,6 +2,7 @@ import { requireUser } from "@/lib/session";
 import { AccountForm } from "@/components/entity-forms";
 import { accountTypeLabel } from "@/lib/labels";
 import { formatMoney } from "@/lib/money";
+import { riskLabel } from "@/lib/risk";
 import { accountBalances, listAllAccounts } from "@/lib/ledger";
 
 export default async function AccountsPage() {
@@ -26,6 +27,7 @@ export default async function AccountsPage() {
                   <span className="ml-2 text-xs font-normal text-muted">
                     {accountTypeLabel(a.type)}
                     {a.currency !== "IDR" && ` · ${a.currency}`}
+                    {a.type === "investment" && ` · ${riskLabel(a.risk)}`}
                     {a.isDefault && " · default"}
                     {a.archived && " · diarsipkan"}
                   </span>
