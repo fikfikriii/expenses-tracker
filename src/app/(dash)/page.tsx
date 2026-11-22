@@ -1,5 +1,7 @@
 import { requireUser } from "@/lib/session";
 import Link from "next/link";
+import { cookies } from "next/headers";
+import { HIDE_COOKIE, NetWorthCard } from "@/components/net-worth-card";
 import { BudgetBar } from "@/components/budget-bar";
 import { TxList } from "@/components/tx-list";
 import { accountTypeLabel } from "@/lib/labels";
@@ -55,6 +57,7 @@ export default async function Overview({ searchParams }: { searchParams: Promise
     })
     .filter((r): r is { name: string; spent: number; limit: number } => r !== null)
     .sort((a, b) => b.spent / b.limit - a.spent / a.limit);
+  const hideBalance = (await cookies()).get(HIDE_COOKIE)?.value === "1";
   const net = summary.income - summary.expense;
   const isCurrent = month === periodKey(today, day);
 
@@ -69,18 +72,21 @@ export default async function Overview({ searchParams }: { searchParams: Promise
         </div>
       </div>
 
-      <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <NetWorthCard
+        total={formatRupiah(totals.netWorth)}
+        cash={formatRupiah(totals.cash)}
+        investment={investAccounts.length > 0 ? formatRupiah(totals.investment) : null}
+        initialHidden={hideBalance}
+      />
+
+      <section className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <Stat label="Pemasukan" value={formatRupiah(summary.income)} tone="text-green-600" />
         <Stat label="Pengeluaran" value={formatRupiah(summary.expense)} />
         <Stat
           label="Selisih"
+          className="col-span-2 sm:col-span-1"
           value={`${net < 0 ? "−" : ""}${formatRupiah(Math.abs(net))}`}
           tone={net < 0 ? "text-red-600" : "text-green-600"}
-        />
-        <Stat
-          label="Total kekayaan"
-          value={formatRupiah(totals.netWorth)}
-          sub={totals.investment ? `Kas ${formatRupiah(totals.cash)} · Investasi ${formatRupiah(totals.investment)}` : undefined}
         />
       </section>
 
@@ -190,12 +196,11 @@ export default async function Overview({ searchParams }: { searchParams: Promise
   );
 }
 
-function Stat({ label, value, tone, sub }: { label: string; value: string; tone?: string; sub?: string }) {
+function Stat({ label, value, tone, className = "" }: { label: string; value: string; tone?: string; className?: string }) {
   return (
-    <div className="card">
+    <div className={`card ${className}`}>
       <div className="text-xs text-muted">{label}</div>
       <div className={`mt-1 text-lg font-semibold tabular-nums ${tone ?? ""}`}>{value}</div>
-      {sub && <div className="mt-0.5 text-[11px] text-muted">{sub}</div>}
     </div>
   );
 }
