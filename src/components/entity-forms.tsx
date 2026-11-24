@@ -23,7 +23,7 @@ function useResetOnSuccess(state: FormState, isNew: boolean) {
 
 export function AccountForm({ account }: {
   account?: {
-    id: number; name: string; type: string; risk: string | null; aliases: string[];
+    id: number; name: string; type: string; risk: string | null; interestRate: number | null; maturityOn: string | null; aliases: string[];
     initialBalance: number; isDefault: boolean; archived: boolean; currency: "IDR" | "USD";
   };
 }) {
@@ -40,11 +40,14 @@ export function AccountForm({ account }: {
       </label>
       <label className="label">
         Tipe
-        <select name="type" value={type} onChange={(e) => setType(e.target.value)} className="input">
+        <select name="type" value={type} onChange={(e) => {
+            setType(e.target.value);
+            if (e.target.value === "deposit" && !risk) setRisk("low");
+          }} className="input">
           {ACCOUNT_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>
       </label>
-      {type === "investment" && (
+      {(type === "investment" || type === "deposit") && (
         <>
           <label className="label">
             Jenis aset (saran risiko)
@@ -63,6 +66,24 @@ export function AccountForm({ account }: {
               <option value="">Belum diklasifikasi</option>
               {RISKS.map((r) => <option key={r.value} value={r.value}>{r.icon} {r.label}</option>)}
             </select>
+          </label>
+        </>
+      )}
+      {type === "deposit" && (
+        <>
+          <label className="label">
+            Bunga per tahun (%)
+            <input
+              name="interestRate"
+              inputMode="decimal"
+              defaultValue={account?.interestRate ?? ""}
+              placeholder="6 / 6,5"
+              className="input"
+            />
+          </label>
+          <label className="label">
+            Tanggal jatuh tempo
+            <input type="date" name="maturityOn" defaultValue={account?.maturityOn ?? ""} className="input" />
           </label>
         </>
       )}

@@ -8,8 +8,9 @@ import { extractAmount } from "@/lib/parse";
 import { schema } from "@/db";
 import { convert, parseFormAmount, type Currency } from "@/lib/money";
 import { createRecurring, deleteRecurring, updateRecurring } from "@/lib/recurring";
-import { todayJakarta } from "@/lib/dates";
+import { todayJakarta, toIsoDate } from "@/lib/dates";
 import { isRisk, type Risk } from "@/lib/risk";
+import { parseRate } from "@/lib/maturity";
 import { currentRate, deleteRate, saveRate } from "@/lib/fx";
 import {
   createAccount,
@@ -43,6 +44,12 @@ function moneyFrom(f: FormData, k: string, currency: Currency): number | null {
 /** "Latte, starbucks ,kopken" -> ["latte", "starbucks", "kopken"] */
 function splitList(raw: string): string[] {
   return [...new Set(raw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean))];
+}
+
+/** "2026-12-31" -> itself when it is a real date, else null. */
+function validIsoDate(raw: string): string | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+  return m ? toIsoDate(Number(m[1]), Number(m[2]), Number(m[3])) : null;
 }
 
 function refresh() {
@@ -120,13 +127,21 @@ export async function saveAccount(_prev: FormState, f: FormData): Promise<FormSt
   const raw = str(f, "initialBalance");
   const initialBalance = raw ? moneyFrom(f, "initialBalance", str(f, "currency") === "USD" ? "USD" : "IDR") : 0;
   if (initialBalance === null) return { error: "Saldo awal nggak kebaca." };
+  const maturityRaw = str(f, "maturityOn");
+  const maturity = maturityRaw === "" ? null : validIsoDate(maturityRaw);
+  if (maturityRaw !== "" && !maturity) return { error: "Tanggal jatuh tempo nggak valid." };
+  const rateRaw = str(f, "interestRate");
+  const rate = rateRaw === "" ? null : parseRate(rateRaw);
+  if (rateRaw !== "" && rate === null) return { error: "Bunga harus angka 0-100, misal 6 atau 6,5." };
   const aliases = splitList(str(f, "aliases"));
   const currency = str(f, "currency") === "USD" ? "USD" : "IDR";
   const input = {
     name,
     type,
     currency: currency as Currency,
-    risk: type === "investment" && isRisk(str(f, "risk")) ? (str(f, "risk") as Risk) : null,
+    risk: (type === "investment" || type === "deposit") && isRisk(str(f, "risk")) ? (str(f, "risk") as Risk) : null,
+    interestRate: type === "deposit" ? rate : null,
+    maturityOn: type === "deposit" ? maturity : null,
     aliases,
     initialBalance,
     isDefault: f.get("isDefault") === "on",

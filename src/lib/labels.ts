@@ -5,6 +5,7 @@ export const ACCOUNT_TYPES = [
   { value: "savings", label: "Tabungan" },
   { value: "credit_card", label: "Kartu kredit" },
   { value: "investment", label: "Investasi" },
+  { value: "deposit", label: "Deposito" },
   { value: "other", label: "Lainnya" },
 ];
 

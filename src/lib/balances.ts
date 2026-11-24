@@ -30,7 +30,9 @@ export type BalanceTx = {
 
 export type Snapshot = { accountId: number; takenOn: string; balance: number };
 
-export const isInvestment = (a: { type: string }) => a.type === "investment";
+export const isDeposit = (a: { type: string }) => a.type === "deposit";
+/** Investments and time deposits: money that is not spending cash. */
+export const isInvestment = (a: { type: string }) => a.type === "investment" || a.type === "deposit";
 
 /** How a transaction changes one account's balance. */
 export function effectOn(tx: BalanceTx, accountId: number): number {

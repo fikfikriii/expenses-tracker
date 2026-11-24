@@ -24,6 +24,11 @@ export function addDays(iso: string, days: number): string {
   return dt.toISOString().slice(0, 10);
 }
 
+/** Whole days from `from` to `to` (negative when `to` is earlier). */
+export function daysBetween(from: string, to: string): number {
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
+}
+
 export function monthRange(iso: string): { start: string; end: string } {
   const [y, m] = iso.split("-").map(Number);
   const start = toIsoDate(y, m, 1)!;

@@ -3,6 +3,8 @@ import { AccountForm } from "@/components/entity-forms";
 import { accountTypeLabel } from "@/lib/labels";
 import { formatMoney } from "@/lib/money";
 import { riskLabel } from "@/lib/risk";
+import { formatRate, maturityLabel } from "@/lib/maturity";
+import { todayJakarta } from "@/lib/dates";
 import { accountBalances, listAllAccounts } from "@/lib/ledger";
 
 export default async function AccountsPage() {
@@ -27,7 +29,9 @@ export default async function AccountsPage() {
                   <span className="ml-2 text-xs font-normal text-muted">
                     {accountTypeLabel(a.type)}
                     {a.currency !== "IDR" && ` · ${a.currency}`}
-                    {a.type === "investment" && ` · ${riskLabel(a.risk)}`}
+                    {(a.type === "investment" || a.type === "deposit") && ` · ${riskLabel(a.risk)}`}
+                    {a.type === "deposit" && a.interestRate !== null && ` · ${formatRate(a.interestRate)}`}
+                    {a.type === "deposit" && a.maturityOn && ` · ${maturityLabel(a.maturityOn, todayJakarta())}`}
                     {a.isDefault && " · default"}
                     {a.archived && " · diarsipkan"}
                   </span>

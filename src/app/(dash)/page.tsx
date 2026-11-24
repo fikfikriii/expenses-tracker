@@ -6,8 +6,9 @@ import { BudgetBar } from "@/components/budget-bar";
 import { TxList } from "@/components/tx-list";
 import { accountTypeLabel } from "@/lib/labels";
 import { riskLabel, type Risk } from "@/lib/risk";
-import { formatDateId, formatPeriodId, formatRupiah, periodKey, periodRange, shiftMonth, todayJakarta } from "@/lib/dates";
-import { isInvestment, netWorthTrend } from "@/lib/balances";
+import { formatRate } from "@/lib/maturity";
+import { daysBetween, formatDateId, formatPeriodId, formatRupiah, periodKey, periodRange, shiftMonth, todayJakarta } from "@/lib/dates";
+import { isDeposit, isInvestment, netWorthTrend } from "@/lib/balances";
 import { NetWorthBars } from "@/components/charts";
 import { formatMoney, type Currency } from "@/lib/money";
 import {
@@ -42,7 +43,11 @@ export default async function Overview({ searchParams }: { searchParams: Promise
   const usdRate = active.some((a) => a.currency === "USD") ? book.rate(asOf) : undefined;
   const totals = book.totals(asOf);
   const cashAccounts = active.filter((a) => !isInvestment(a));
-  const investAccounts = active.filter(isInvestment);
+  const investAccounts = active.filter((a) => isInvestment(a) && !isDeposit(a));
+  const deposits = active
+    .filter(isDeposit)
+    .sort((a, b) => (a.maturityOn ?? "9999-12-31").localeCompare(b.maturityOn ?? "9999-12-31") || a.id - b.id);
+  const depositTotal = deposits.reduce((sum, d) => sum + book.valueIdr(d.id, asOf), 0);
   const unrecordedParts = book.unrecorded().filter((u) => u.takenOn >= start && u.takenOn <= end);
   const unrecorded = unrecordedParts.reduce((s, u) => s + u.diff, 0);
   const trend = netWorthTrend(book, month, today, 12, day);
@@ -75,7 +80,7 @@ export default async function Overview({ searchParams }: { searchParams: Promise
       <NetWorthCard
         total={formatRupiah(totals.netWorth)}
         cash={formatRupiah(totals.cash)}
-        investment={investAccounts.length > 0 ? formatRupiah(totals.investment) : null}
+        investment={investAccounts.length + deposits.length > 0 ? formatRupiah(totals.investment) : null}
         initialHidden={hideBalance}
       />
 
@@ -177,6 +182,41 @@ export default async function Overview({ searchParams }: { searchParams: Promise
           <Link href="/balances" className="btn self-start">🏦 Update saldo</Link>
         </div>
       </section>
+
+      {deposits.length > 0 && (
+        <section className="card flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <h2 className="font-medium">Deposito</h2>
+            <span className="text-sm tabular-nums text-muted">Total {formatRupiah(depositTotal)}</span>
+          </div>
+          <div className="hidden grid-cols-[1.4fr_1fr_0.8fr_1.4fr] gap-3 text-xs font-medium uppercase tracking-wide text-muted sm:grid">
+            <span>Nama</span>
+            <span className="text-right">Nominal</span>
+            <span className="text-right">Bunga</span>
+            <span className="text-right">Jatuh tempo</span>
+          </div>
+          <ul className="divide-y divide-border">
+            {deposits.map((d) => {
+              const days = d.maturityOn ? daysBetween(today, d.maturityOn) : null;
+              const tone = days === null ? "text-muted" : days < 0 ? "text-red-600" : days <= 7 ? "text-amber-600" : "";
+              return (
+                <li key={d.id} className="grid grid-cols-2 gap-x-3 gap-y-1 py-2 text-sm sm:grid-cols-[1.4fr_1fr_0.8fr_1.4fr]">
+                  <Link href={`/transactions?account=${d.id}`} className="truncate font-medium hover:underline">{d.name}</Link>
+                  <span className="text-right tabular-nums">{formatMoney(book.balanceAt(d.id, asOf), d.currency)}</span>
+                  <span className="text-xs text-muted sm:text-right sm:text-sm">
+                    {d.interestRate !== null ? formatRate(d.interestRate) : "–"}
+                  </span>
+                  <span className={`text-right text-xs sm:text-sm ${tone}`}>
+                    {d.maturityOn && days !== null
+                      ? `${formatDateId(d.maturityOn)} · ${days > 0 ? `${days} hari lagi` : days === 0 ? "hari ini" : "lewat"}`
+                      : "–"}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
 
       {trend.length > 1 && (
         <section className="card flex flex-col gap-3">

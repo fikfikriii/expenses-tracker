@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BalanceBook, type BalanceTx } from "./balances";
+import { BalanceBook, isDeposit, isInvestment, type BalanceTx } from "./balances";
 
 const accounts = [
   { id: 1, type: "bank", initialBalance: 0 },
@@ -110,6 +110,32 @@ describe("capital of an investment account", () => {
       { accountId: 3, takenOn: "2026-11-30", balance: 2_100_000 },
     ];
     expect(new BalanceBook([noOpening], snaps, []).capitalIdr(3, "2026-11-30")).toBe(2_000_000);
+  });
+});
+
+describe("deposits", () => {
+  const accs = [
+    { id: 1, type: "bank", initialBalance: 0 },
+    { id: 2, type: "deposit", risk: "low", initialBalance: 0 },
+  ];
+  const put = tx({ type: "transfer", amount: 10_000_000, accountId: 1, toAccountId: 2 });
+
+  it("counts as investment, not cash", () => {
+    expect(isDeposit(accs[1])).toBe(true);
+    expect(isInvestment(accs[1])).toBe(true);
+    expect(isDeposit({ type: "investment" })).toBe(false);
+    const b = new BalanceBook(accs, [], [put]);
+    expect(b.totals("2026-11-30")).toEqual({ cash: -10_000_000, investment: 10_000_000, netWorth: 0 });
+  });
+
+  it("is left out of unrecorded money and shows in the risk mix", () => {
+    const b = new BalanceBook(
+      accs,
+      [{ accountId: 2, takenOn: "2026-11-30", balance: 10_000_000 }, { accountId: 2, takenOn: "2026-12-31", balance: 10_400_000 }],
+      [put],
+    );
+    expect(b.unrecorded().filter((u) => u.accountId === 2)).toEqual([]);
+    expect(b.riskBreakdown("2026-12-31").map((r) => [r.risk, r.value])).toEqual([["low", 10_400_000]]);
   });
 });
 

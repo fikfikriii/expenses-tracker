@@ -71,6 +71,13 @@
       "when": 1795275585777,
       "tag": "0009_risk_level",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1795490798716,
+      "tag": "0010_deposits",
+      "breakpoints": true
     }
   ]
 }

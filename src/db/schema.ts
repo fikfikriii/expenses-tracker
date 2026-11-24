@@ -22,6 +22,7 @@ export const accountType = pgEnum("account_type", [
   "savings",
   "credit_card",
   "investment",
+  "deposit",
   "other",
 ]);
 
@@ -79,6 +80,9 @@ export const accounts = pgTable(
     currency: currency("currency").notNull().default("IDR"),
     // Only used for investment accounts.
     risk: riskLevel("risk"),
+    // Time deposits (type "deposit"): yearly interest rate in percent, and the day it matures.
+    interestRate: doublePrecision("interest_rate"),
+    maturityOn: date("maturity_on", { mode: "string" }),
     // Extra words the bot accepts for this account, e.g. ["bca", "m-banking"].
     aliases: text("aliases").array().notNull().default([]),
     initialBalance: bigint("initial_balance", { mode: "number" }).notNull().default(0),

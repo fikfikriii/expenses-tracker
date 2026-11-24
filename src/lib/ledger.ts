@@ -398,6 +398,10 @@ export type AccountInput = {
   currency: "IDR" | "USD";
   /** Only kept for investment accounts. */
   risk: "low" | "medium" | "high" | null;
+  /** Percent per year; only kept for deposits. */
+  interestRate: number | null;
+  /** YYYY-MM-DD; only kept for deposits. */
+  maturityOn: string | null;
   aliases: string[];
   initialBalance: number;
   isDefault: boolean;
