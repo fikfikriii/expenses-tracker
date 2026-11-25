@@ -137,7 +137,7 @@ export default async function BalancesPage() {
           {canEditRates && <FxRateForm date={today} />}
           {rates.length > 0 && (
             <ul className="divide-y divide-border">
-              {rates.slice(0, 10).map((r) => (
+              {rates.slice(0, 1).map((r) => (
                 <li key={r.rateOn} className="flex items-center gap-3 py-2 text-sm">
                   <span className="w-20 shrink-0 text-xs text-muted">{formatDateId(r.rateOn)}</span>
                   <span className="flex-1 tabular-nums">{formatRupiah(r.usdIdr)}</span>
@@ -155,8 +155,13 @@ export default async function BalancesPage() {
         </section>
       )}
 
-      <section className="card flex flex-col gap-3">
-        <h2 className="font-medium">Riwayat cek saldo</h2>
+      <section className="card">
+        <details open className="group flex flex-col gap-3">
+          <summary className="flex cursor-pointer list-none items-center justify-between font-medium">
+            <h2>Riwayat cek saldo</h2>
+            <span className="text-xs font-normal text-muted group-open:hidden">Tampilkan ({snapshots.length})</span>
+            <span className="hidden text-xs font-normal text-muted group-open:inline">Sembunyikan</span>
+          </summary>
         {snapshots.length === 0 ? (
           <p className="py-4 text-center text-sm text-muted">Belum pernah cek saldo.</p>
         ) : (
@@ -174,6 +179,7 @@ export default async function BalancesPage() {
             ))}
           </ul>
         )}
+        </details>
       </section>
     </>
   );
