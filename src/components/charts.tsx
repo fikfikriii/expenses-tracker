@@ -1,4 +1,5 @@
 import { formatMonthId, formatRupiah } from "@/lib/dates";
+import { TipArea } from "./tip-area";
 
 export const VIZ = ["var(--viz-1)", "var(--viz-2)", "var(--viz-3)", "var(--viz-4)", "var(--viz-5)"];
 export const VIZ_OTHER = "var(--viz-other)";
@@ -40,7 +41,7 @@ function niceMax(v: number): number {
 
 /**
  * Bars per month. `grouped` puts the series side by side, otherwise they stack.
- * Hovering a bar shows its value through the native SVG tooltip.
+ * Hovering (or tapping) a month shows all its values in a tooltip.
  */
 export function MonthBars({ months, series, values, stacked }: {
   months: string[];
@@ -58,6 +59,7 @@ export function MonthBars({ months, series, values, stacked }: {
   const groupW = Math.min(48, slot * 0.7);
 
   return (
+    <TipArea>
     <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="Grafik per bulan">
       {ticks.map((t) => (
         <g key={t}>
@@ -79,18 +81,26 @@ export function MonthBars({ months, series, values, stacked }: {
               const x = stacked ? cx - groupW / 2 : cx - groupW / 2 + j * (barW + 2);
               const top = stacked ? y(acc + v) : y(v);
               const rect = (
-                <rect key={s.name} x={x} y={top} width={barW} height={stacked ? Math.max(1, h - 2) : h} rx={3} fill={s.color}>
-                  <title>{`${formatMonthId(`${m}-01`)} · ${s.name}: ${formatRupiah(v)}`}</title>
-                </rect>
+                <rect key={s.name} x={x} y={top} width={barW} height={stacked ? Math.max(1, h - 2) : h} rx={3} fill={s.color} />
               );
               acc += v;
               return rect;
             })}
             <text x={cx} y={H - 8} textAnchor="middle" fontSize={10} fill="var(--muted)">{label}</text>
+            <rect
+              x={cx - slot / 2} y={PAD.t} width={slot} height={plotH + PAD.b}
+              fill="transparent" className="hover:fill-black/5 dark:hover:fill-white/5"
+              data-tip={[
+                formatMonthId(`${m}-01`),
+                ...series.map((s, j) => `${s.name}: ${formatRupiah(values[i][j])}`),
+                ...(stacked ? [`Total: ${formatRupiah(values[i].reduce((a, b) => a + b, 0))}`] : []),
+              ].join("|")}
+            />
           </g>
         );
       })}
     </svg>
+    </TipArea>
   );
 }
 
@@ -125,13 +135,23 @@ export function NetWorthBars({ data }: { data: TrendPoint[] }) {
   const max = Math.max(1, ...data.map((d) => Math.max(0, d.cash) + Math.max(0, d.investment)));
   const hasInv = data.some((d) => d.investment > 0);
   return (
+    <TipArea>
     <div className="flex flex-col gap-2">
       <div className="flex h-40 items-end gap-1.5">
         {data.map((d) => {
           const cashH = (Math.max(0, d.cash) / max) * 100;
           const invH = (Math.max(0, d.investment) / max) * 100;
           return (
-            <div key={d.month} className="group flex h-full flex-1 flex-col items-center justify-end gap-1">
+            <div
+              key={d.month}
+              className="group flex h-full flex-1 flex-col items-center justify-end gap-1 rounded hover:bg-black/5 dark:hover:bg-white/5"
+              data-tip={[
+                formatMonthId(`${d.month}-01`),
+                `Total: ${formatRupiah(d.cash + d.investment)}`,
+                `Kas & bank: ${formatRupiah(d.cash)}`,
+                ...(d.investment > 0 ? [`Investasi: ${formatRupiah(d.investment)}`] : []),
+              ].join("|")}
+            >
               <span className="text-[10px] tabular-nums text-muted">{compact(d.cash + d.investment)}</span>
               <div className="flex w-full max-w-10 flex-col justify-end" style={{ height: "100%" }}>
                 {invH > 0 && <div className="w-full rounded-t bg-emerald-500/70" style={{ height: `${invH}%` }} />}
@@ -158,5 +178,6 @@ export function NetWorthBars({ data }: { data: TrendPoint[] }) {
         </div>
       )}
     </div>
+    </TipArea>
   );
 }
