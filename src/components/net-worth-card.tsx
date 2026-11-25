@@ -2,8 +2,6 @@
 
 import { useState } from "react";
 
-export const HIDE_COOKIE = "et_hide_balance";
-
 /** "Rp1.234.567" -> "Rp ******": same look as the mask in banking apps. */
 const mask = (n = 6) => `Rp ${"*".repeat(n)}`;
 
@@ -18,27 +16,18 @@ function Eye({ off }: { off: boolean }) {
 }
 
 /**
- * Total net worth as a regular stat card with a show/hide button. The choice is kept in a cookie,
- * so the server renders the page already hidden (no flash of numbers) and it sticks across visits.
+ * Total net worth as a regular stat card with a show/hide button. It always starts hidden when the
+ * page is opened (the server renders it masked, so numbers never flash); the button only reveals it
+ * for the current visit.
  */
-export function NetWorthCard({ total, cash, investment, initialHidden }: {
+export function NetWorthCard({ total, cash, investment }: {
   total: string;
   cash: string;
   /** Null when there are no investment accounts. */
   investment: string | null;
-  initialHidden: boolean;
 }) {
-  const [hidden, setHidden] = useState(initialHidden);
-
-  function toggle() {
-    const next = !hidden;
-    setHidden(next);
-    try {
-      document.cookie = `${HIDE_COOKIE}=${next ? "1" : "0"}; path=/; max-age=31536000; samesite=lax`;
-    } catch {
-      // Cookies blocked: it still works, it just won't be remembered.
-    }
-  }
+  const [hidden, setHidden] = useState(true);
+  const toggle = () => setHidden((h) => !h);
 
   return (
     <div className="card">

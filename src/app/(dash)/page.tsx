@@ -1,7 +1,6 @@
 import { requireUser } from "@/lib/session";
 import Link from "next/link";
-import { cookies } from "next/headers";
-import { HIDE_COOKIE, NetWorthCard } from "@/components/net-worth-card";
+import { NetWorthCard } from "@/components/net-worth-card";
 import { BudgetBar } from "@/components/budget-bar";
 import { TxList } from "@/components/tx-list";
 import { accountTypeLabel } from "@/lib/labels";
@@ -62,7 +61,6 @@ export default async function Overview({ searchParams }: { searchParams: Promise
     })
     .filter((r): r is { name: string; spent: number; limit: number } => r !== null)
     .sort((a, b) => b.spent / b.limit - a.spent / a.limit);
-  const hideBalance = (await cookies()).get(HIDE_COOKIE)?.value === "1";
   const net = summary.income - summary.expense;
   const isCurrent = month === periodKey(today, day);
 
@@ -89,7 +87,6 @@ export default async function Overview({ searchParams }: { searchParams: Promise
           total={formatRupiah(totals.netWorth)}
           cash={formatRupiah(totals.cash)}
           investment={investAccounts.length + deposits.length > 0 ? formatRupiah(totals.investment) : null}
-          initialHidden={hideBalance}
         />
       </section>
 
