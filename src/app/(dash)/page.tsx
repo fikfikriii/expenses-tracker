@@ -77,21 +77,19 @@ export default async function Overview({ searchParams }: { searchParams: Promise
         </div>
       </div>
 
-      <NetWorthCard
-        total={formatRupiah(totals.netWorth)}
-        cash={formatRupiah(totals.cash)}
-        investment={investAccounts.length + deposits.length > 0 ? formatRupiah(totals.investment) : null}
-        initialHidden={hideBalance}
-      />
-
-      <section className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+      <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Stat label="Pemasukan" value={formatRupiah(summary.income)} tone="text-green-600" />
         <Stat label="Pengeluaran" value={formatRupiah(summary.expense)} />
         <Stat
           label="Selisih"
-          className="col-span-2 sm:col-span-1"
           value={`${net < 0 ? "−" : ""}${formatRupiah(Math.abs(net))}`}
           tone={net < 0 ? "text-red-600" : "text-green-600"}
+        />
+        <NetWorthCard
+          total={formatRupiah(totals.netWorth)}
+          cash={formatRupiah(totals.cash)}
+          investment={investAccounts.length + deposits.length > 0 ? formatRupiah(totals.investment) : null}
+          initialHidden={hideBalance}
         />
       </section>
 
