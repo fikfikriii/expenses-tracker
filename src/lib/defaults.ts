@@ -1,8 +1,8 @@
 // Starter data every new user gets. Mirrors drizzle/0001_seed.sql.
 export const DEFAULT_ACCOUNTS = [
-  { name: "Cash", type: "cash", aliases: ["tunai", "cash", "dompet"], isDefault: true },
+  { name: "Cash", type: "bank", aliases: ["tunai", "cash", "dompet"], isDefault: true },
   { name: "BCA", type: "bank", aliases: ["bca", "mbca", "klikbca"], isDefault: false },
-  { name: "GoPay", type: "ewallet", aliases: ["gopay", "gojek pay"], isDefault: false },
+  { name: "GoPay", type: "bank", aliases: ["gopay", "gojek pay"], isDefault: false },
 ] as const;
 
 export const DEFAULT_CATEGORIES = [
